@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: board_tpl_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: board_tpl
+      POSTGRES_USER: board_tpl_user
+      POSTGRES_PASSWORD: board_tpl_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - board_tpl_pg_data:/var/lib/postgresql/data
+
+volumes:
+  board_tpl_pg_data:
