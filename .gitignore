@@ -1,0 +1,33 @@
+# Build outputs
+bin/
+obj/
+artifacts/
+TestResults/
+
+# .NET user/IDE files
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# JetBrains Rider/ReSharper
+.idea/
+_ReSharper*/
+*.DotSettings.user
+
+# Logs
+*.log
+logs/
+
+# Local environment/secrets (keep examples committed)
+.env
+.env.*
+!.env.example
+
+# Optional local appsettings overrides
+appsettings.Local.json
+appsettings.*.Local.json
+appsettings.local.json
+appsettings.*.local.json
