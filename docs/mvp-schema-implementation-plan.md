@@ -110,7 +110,9 @@ Key notes:
 - `users` is the stable identity root (`users.id` is the real identity key).
 - Email is mutable and modeled separately in `user_email_addresses`.
 - `user_password_credentials` supports local auth without forcing password fields onto `users`.
+- For MVP, login/refresh/logout/password-recovery support may use fields on `user_password_credentials` (or stateless token strategies) without introducing separate session/recovery-token tables yet; add dedicated tables later only if needed.
 - `user_external_identities` supports OAuth provider links (`github`, `steam`, `epic`, etc.).
+- Board profile linkage/cache is modeled in `user_board_profiles` (not as a `user_external_identities` provider row).
 - `user_board_profiles` is optional/non-authoritative.
 
 ### Wave 2: Organizations + Memberships
