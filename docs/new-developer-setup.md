@@ -141,6 +141,12 @@ Run only unit tests:
 pwsh ./scripts/dev.ps1 test -SkipIntegration
 ```
 
+Run versioned Postman API tests via Newman (optional, requires Node.js / `npx`):
+
+```powershell
+pwsh ./backend/scripts/run-postman.ps1
+```
+
 ## Manual Equivalents (If You Prefer Not to Use Scripts)
 
 Initialize submodules:
@@ -173,6 +179,7 @@ dotnet run --project ./backend/src/Board.ThirdPartyLibrary.Api/Board.ThirdPartyL
 - `frontend/`: frontend submodule (MAUI client work planned)
 - [`docs/`](../../docs): project-wide technical direction docs (root repo)
 - [`backend/docs/`](../docs): backend-specific setup docs (this submodule)
+- [`backend/postman/`](../postman): versioned Postman collections/environments for API endpoint testing
 - [`scripts/`](../../scripts): root-level developer orchestration scripts
 
 ## Troubleshooting
@@ -234,3 +241,4 @@ See also:
 
 - [Technology direction (`docs/technology-fit-recommendation.md`)](../../docs/technology-fit-recommendation.md)
 - [Phase 1 Postgres setup (`backend/docs/backend-phase-1-postgres-setup.md`)](backend-phase-1-postgres-setup.md)
+- [Postman API testing (`backend/docs/postman-api-testing.md`)](postman-api-testing.md)

@@ -5,6 +5,8 @@ A backend service for third party developers for the Board ecosystem to use to r
 ## Table of Contents
 
 - [Local development (Phase 2)](#local-development-phase-2)
+- [Schema Planning](#schema-planning)
+- [API Testing (Postman)](#api-testing-postman)
 
 ## Local development (Phase 2)
 
@@ -42,3 +44,20 @@ Notes:
 
 - `appsettings.Development.json` is preconfigured for the local Postgres container from Phase 1.
 - Override with env var `ConnectionStrings__BoardLibrary` if needed.
+
+## Schema Planning
+
+Backend schema implementation is planned as EF Core code-first with migrations as the database schema source of truth.
+
+See:
+
+- [`backend/docs/mvp-schema-implementation-plan.md`](docs/mvp-schema-implementation-plan.md)
+
+## API Testing (Postman)
+
+Versioned Postman assets for backend endpoint testing are stored in [`backend/postman/`](postman/).
+
+See:
+
+- [`backend/postman/README.md`](postman/README.md)
+- [`backend/docs/postman-api-testing.md`](docs/postman-api-testing.md)
