@@ -883,8 +883,10 @@ internal sealed record UpsertTitleMetadataCommand(
 /// <param name="MinAgeYears">Minimum recommended player age.</param>
 /// <param name="CurrentReleaseId">Currently active release identifier when present.</param>
 /// <param name="CardImageUrl">Card/list image URL when configured.</param>
+/// <param name="AcquisitionUrl">Primary acquisition URL when an active binding exists.</param>
 /// <param name="MediaAssets">Configured title media assets.</param>
 /// <param name="CurrentRelease">Currently active public release when present.</param>
+/// <param name="Acquisition">Detailed public acquisition summary when present.</param>
 /// <param name="CreatedAtUtc">UTC creation timestamp when requested.</param>
 /// <param name="UpdatedAtUtc">UTC update timestamp when requested.</param>
 internal sealed record TitleSnapshot(
@@ -917,6 +919,10 @@ internal sealed record TitleSnapshot(
 /// <summary>
 /// Public title acquisition projection derived from the active primary binding.
 /// </summary>
+/// <param name="Url">External acquisition URL.</param>
+/// <param name="Label">Optional player-facing acquisition label.</param>
+/// <param name="ProviderDisplayName">Provider name shown to players.</param>
+/// <param name="ProviderHomepageUrl">Canonical provider homepage URL when known.</param>
 internal sealed record PublicTitleAcquisitionSnapshot(
     string Url,
     string? Label,
@@ -961,6 +967,7 @@ internal sealed record TitleMetadataVersionSnapshot(
 /// </summary>
 /// <param name="Status">Operation status.</param>
 /// <param name="Title">Returned title snapshot when available.</param>
+/// <param name="ErrorCode">Optional machine-readable conflict code.</param>
 internal sealed record TitleMutationResult(
     TitleMutationStatus Status,
     TitleSnapshot? Title = null,

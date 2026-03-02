@@ -426,6 +426,14 @@ internal static class AcquisitionEndpoints
             statusCode: statusCode);
 }
 
+/// <summary>
+/// Request payload for creating or updating an organization integration connection.
+/// </summary>
+/// <param name="SupportedPublisherId">Canonical supported publisher identifier when using a registry entry.</param>
+/// <param name="CustomPublisherDisplayName">Custom publisher display name when using an organization-owned custom connection.</param>
+/// <param name="CustomPublisherHomepageUrl">Custom publisher homepage URL when using an organization-owned custom connection.</param>
+/// <param name="Configuration">Optional provider-specific non-secret configuration object.</param>
+/// <param name="IsEnabled">Whether the connection can be selected for enabled bindings.</param>
 internal sealed record UpsertIntegrationConnectionRequest(
     Guid? SupportedPublisherId,
     string? CustomPublisherDisplayName,
@@ -433,6 +441,15 @@ internal sealed record UpsertIntegrationConnectionRequest(
     JsonElement? Configuration,
     bool IsEnabled);
 
+/// <summary>
+/// Request payload for creating or updating a title acquisition binding.
+/// </summary>
+/// <param name="IntegrationConnectionId">Organization-owned integration connection identifier.</param>
+/// <param name="AcquisitionUrl">Player-facing external acquisition URL.</param>
+/// <param name="AcquisitionLabel">Optional player-facing acquisition label.</param>
+/// <param name="Configuration">Optional provider-specific non-secret configuration object.</param>
+/// <param name="IsPrimary">Whether the binding is the active primary binding for the title.</param>
+/// <param name="IsEnabled">Whether the binding is available to players.</param>
 internal sealed record UpsertTitleIntegrationBindingRequest(
     Guid IntegrationConnectionId,
     string AcquisitionUrl,
@@ -441,12 +458,32 @@ internal sealed record UpsertTitleIntegrationBindingRequest(
     bool IsPrimary,
     bool IsEnabled);
 
+/// <summary>
+/// Supported publisher DTO.
+/// </summary>
+/// <param name="Id">Supported publisher identifier.</param>
+/// <param name="Key">Stable machine-friendly publisher key.</param>
+/// <param name="DisplayName">Public publisher name.</param>
+/// <param name="HomepageUrl">Canonical publisher homepage URL.</param>
 internal sealed record SupportedPublisherDto(
     Guid Id,
     string Key,
     string DisplayName,
     string HomepageUrl);
 
+/// <summary>
+/// Integration connection DTO.
+/// </summary>
+/// <param name="Id">Integration connection identifier.</param>
+/// <param name="OrganizationId">Owning organization identifier.</param>
+/// <param name="SupportedPublisherId">Linked supported publisher identifier when present.</param>
+/// <param name="SupportedPublisher">Canonical supported publisher details when present.</param>
+/// <param name="CustomPublisherDisplayName">Custom publisher display name when using a custom connection.</param>
+/// <param name="CustomPublisherHomepageUrl">Custom publisher homepage URL when using a custom connection.</param>
+/// <param name="Configuration">Optional provider-specific non-secret configuration object.</param>
+/// <param name="IsEnabled">Whether the connection can be selected for enabled bindings.</param>
+/// <param name="CreatedAt">UTC creation timestamp.</param>
+/// <param name="UpdatedAt">UTC update timestamp.</param>
 internal sealed record IntegrationConnectionDto(
     Guid Id,
     Guid OrganizationId,
@@ -459,6 +496,20 @@ internal sealed record IntegrationConnectionDto(
     DateTime CreatedAt,
     DateTime UpdatedAt);
 
+/// <summary>
+/// Title integration binding DTO.
+/// </summary>
+/// <param name="Id">Binding identifier.</param>
+/// <param name="TitleId">Owning title identifier.</param>
+/// <param name="IntegrationConnectionId">Referenced integration connection identifier.</param>
+/// <param name="IntegrationConnection">Referenced integration connection details.</param>
+/// <param name="AcquisitionUrl">Player-facing external acquisition URL.</param>
+/// <param name="AcquisitionLabel">Optional player-facing acquisition label.</param>
+/// <param name="Configuration">Optional provider-specific non-secret configuration object.</param>
+/// <param name="IsPrimary">Whether the binding is the active primary binding for the title.</param>
+/// <param name="IsEnabled">Whether the binding is available to players.</param>
+/// <param name="CreatedAt">UTC creation timestamp.</param>
+/// <param name="UpdatedAt">UTC update timestamp.</param>
 internal sealed record TitleIntegrationBindingDto(
     Guid Id,
     Guid TitleId,
@@ -472,14 +523,42 @@ internal sealed record TitleIntegrationBindingDto(
     DateTime CreatedAt,
     DateTime UpdatedAt);
 
+/// <summary>
+/// Response wrapper for supported publisher listings.
+/// </summary>
+/// <param name="SupportedPublishers">Supported publishers visible to the caller.</param>
 internal sealed record SupportedPublisherListResponse(IReadOnlyList<SupportedPublisherDto> SupportedPublishers);
 
+/// <summary>
+/// Response wrapper for integration connection listings.
+/// </summary>
+/// <param name="IntegrationConnections">Integration connections visible to the caller.</param>
 internal sealed record IntegrationConnectionListResponse(IReadOnlyList<IntegrationConnectionDto> IntegrationConnections);
 
+/// <summary>
+/// Response wrapper for a single integration connection.
+/// </summary>
+/// <param name="IntegrationConnection">Integration connection details.</param>
 internal sealed record IntegrationConnectionResponse(IntegrationConnectionDto IntegrationConnection);
 
+/// <summary>
+/// Response wrapper for title acquisition binding listings.
+/// </summary>
+/// <param name="IntegrationBindings">Title acquisition bindings visible to the caller.</param>
 internal sealed record TitleIntegrationBindingListResponse(IReadOnlyList<TitleIntegrationBindingDto> IntegrationBindings);
 
+/// <summary>
+/// Response wrapper for a single title acquisition binding.
+/// </summary>
+/// <param name="IntegrationBinding">Title acquisition binding details.</param>
 internal sealed record TitleIntegrationBindingResponse(TitleIntegrationBindingDto IntegrationBinding);
 
+/// <summary>
+/// Problem-details envelope used by acquisition endpoints.
+/// </summary>
+/// <param name="Type">Problem type URI.</param>
+/// <param name="Title">Problem title.</param>
+/// <param name="Status">HTTP status code.</param>
+/// <param name="Detail">Problem detail message.</param>
+/// <param name="Code">Machine-readable problem code.</param>
 internal sealed record AcquisitionProblemEnvelope(string? Type, string Title, int Status, string? Detail, string? Code);

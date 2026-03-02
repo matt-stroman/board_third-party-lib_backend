@@ -5,27 +5,56 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Board.ThirdPartyLibrary.Api.Identity;
 
+/// <summary>
+/// Persistence contract for the application-owned user projection and Board profile linkage.
+/// </summary>
 internal interface IIdentityPersistenceService
 {
+    /// <summary>
+    /// Ensures the current authenticated caller exists in the local user projection table.
+    /// </summary>
+    /// <param name="claims">Authenticated caller claims.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
     Task EnsureCurrentUserProjectionAsync(IEnumerable<Claim> claims, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Returns the linked Board profile for the current caller when one exists.
+    /// </summary>
+    /// <param name="claims">Authenticated caller claims.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
     Task<BoardProfileSnapshot?> GetBoardProfileAsync(IEnumerable<Claim> claims, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Creates or updates the linked Board profile for the current caller.
+    /// </summary>
+    /// <param name="claims">Authenticated caller claims.</param>
+    /// <param name="command">Normalized Board profile values.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
     Task<BoardProfileSnapshot> UpsertBoardProfileAsync(
         IEnumerable<Claim> claims,
         UpsertBoardProfileCommand command,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Removes the linked Board profile for the current caller.
+    /// </summary>
+    /// <param name="claims">Authenticated caller claims.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
     Task<bool> DeleteBoardProfileAsync(IEnumerable<Claim> claims, CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// Entity Framework-backed implementation of <see cref="IIdentityPersistenceService" />.
+/// </summary>
 internal sealed class IdentityPersistenceService(BoardLibraryDbContext dbContext) : IIdentityPersistenceService
 {
+    /// <inheritdoc />
     public async Task EnsureCurrentUserProjectionAsync(IEnumerable<Claim> claims, CancellationToken cancellationToken = default)
     {
         await EnsureUserAsync(claims, cancellationToken);
     }
 
+    /// <inheritdoc />
     public async Task<BoardProfileSnapshot?> GetBoardProfileAsync(IEnumerable<Claim> claims, CancellationToken cancellationToken = default)
     {
         var user = await EnsureUserAsync(claims, cancellationToken);
@@ -36,6 +65,7 @@ internal sealed class IdentityPersistenceService(BoardLibraryDbContext dbContext
         return profile is null ? null : MapSnapshot(profile);
     }
 
+    /// <inheritdoc />
     public async Task<BoardProfileSnapshot> UpsertBoardProfileAsync(
         IEnumerable<Claim> claims,
         UpsertBoardProfileCommand command,
@@ -75,6 +105,7 @@ internal sealed class IdentityPersistenceService(BoardLibraryDbContext dbContext
         return MapSnapshot(profile);
     }
 
+    /// <inheritdoc />
     public async Task<bool> DeleteBoardProfileAsync(IEnumerable<Claim> claims, CancellationToken cancellationToken = default)
     {
         var user = await EnsureUserAsync(claims, cancellationToken);
@@ -156,8 +187,22 @@ internal sealed class IdentityPersistenceService(BoardLibraryDbContext dbContext
         claims.FirstOrDefault(claim => string.Equals(claim.Type, type, StringComparison.OrdinalIgnoreCase))?.Value;
 }
 
+/// <summary>
+/// Command payload for linking or refreshing a Board profile.
+/// </summary>
+/// <param name="BoardUserId">Board user identifier.</param>
+/// <param name="DisplayName">Board display name.</param>
+/// <param name="AvatarUrl">Optional Board avatar URL.</param>
 internal sealed record UpsertBoardProfileCommand(string BoardUserId, string DisplayName, string? AvatarUrl);
 
+/// <summary>
+/// Snapshot of a linked Board profile.
+/// </summary>
+/// <param name="BoardUserId">Board user identifier.</param>
+/// <param name="DisplayName">Board display name.</param>
+/// <param name="AvatarUrl">Optional Board avatar URL.</param>
+/// <param name="LinkedAtUtc">UTC timestamp when the profile was first linked.</param>
+/// <param name="LastSyncedAtUtc">UTC timestamp of the most recent profile sync.</param>
 internal sealed record BoardProfileSnapshot(
     string BoardUserId,
     string DisplayName,
@@ -165,6 +210,14 @@ internal sealed record BoardProfileSnapshot(
     DateTime LinkedAtUtc,
     DateTime LastSyncedAtUtc);
 
+/// <summary>
+/// Cached authenticated user claim snapshot used to upsert the local user projection.
+/// </summary>
+/// <param name="Subject">Immutable Keycloak subject identifier.</param>
+/// <param name="DisplayName">Cached display name when available.</param>
+/// <param name="Email">Cached email address when available.</param>
+/// <param name="EmailVerified">Whether the cached email address is verified.</param>
+/// <param name="IdentityProvider">Upstream identity provider name when available.</param>
 internal sealed record UserSnapshot(
     string Subject,
     string? DisplayName,

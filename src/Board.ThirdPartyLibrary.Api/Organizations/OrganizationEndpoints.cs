@@ -318,6 +318,9 @@ internal static partial class OrganizationEndpoints
     private static partial Regex SlugPattern();
 }
 
+/// <summary>
+/// Shared organization create/update request contract.
+/// </summary>
 internal interface OrganizationRequest
 {
     string Slug { get; }
@@ -415,4 +418,12 @@ internal sealed record OrganizationMembershipListResponse(IReadOnlyList<Organiza
 /// <param name="Membership">Organization membership details.</param>
 internal sealed record OrganizationMembershipResponse(OrganizationMembershipDto Membership);
 
+/// <summary>
+/// Problem-details envelope used by organization endpoints.
+/// </summary>
+/// <param name="Type">Problem type URI.</param>
+/// <param name="Title">Problem title.</param>
+/// <param name="Status">HTTP status code.</param>
+/// <param name="Detail">Problem detail message.</param>
+/// <param name="Code">Machine-readable problem code.</param>
 internal sealed record OrganizationProblemEnvelope(string? Type, string Title, int Status, string? Detail, string? Code);

@@ -27,6 +27,7 @@ python ./scripts/dev.py up
 Backend-only test commands (repo root, automated):
 
 ```bash
+python ./scripts/dev.py verify --skip-contract-tests
 python ./scripts/dev.py test
 python ./scripts/dev.py test --skip-integration
 ```

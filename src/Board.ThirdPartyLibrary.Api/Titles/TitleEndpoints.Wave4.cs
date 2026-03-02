@@ -546,6 +546,9 @@ internal static partial class TitleEndpoints
     private static partial Regex Sha256Pattern();
 }
 
+/// <summary>
+/// Shared request contract for title release create/update payloads.
+/// </summary>
 internal interface ITitleReleaseRequest
 {
     string Version { get; }
@@ -553,6 +556,14 @@ internal interface ITitleReleaseRequest
     int MetadataRevisionNumber { get; }
 }
 
+/// <summary>
+/// Request payload for creating or updating a title media asset.
+/// </summary>
+/// <param name="SourceUrl">Absolute media source URL.</param>
+/// <param name="AltText">Optional accessibility text.</param>
+/// <param name="MimeType">Optional MIME type.</param>
+/// <param name="Width">Optional media width in pixels.</param>
+/// <param name="Height">Optional media height in pixels.</param>
 internal sealed record UpsertTitleMediaAssetRequest(
     string SourceUrl,
     string? AltText,
@@ -560,14 +571,32 @@ internal sealed record UpsertTitleMediaAssetRequest(
     int? Width,
     int? Height);
 
+/// <summary>
+/// Request payload for creating a title release.
+/// </summary>
+/// <param name="Version">Release semver string.</param>
+/// <param name="MetadataRevisionNumber">Metadata revision number bound to the release.</param>
 internal sealed record CreateTitleReleaseRequest(
     string Version,
     int MetadataRevisionNumber) : ITitleReleaseRequest;
 
+/// <summary>
+/// Request payload for updating a title release.
+/// </summary>
+/// <param name="Version">Release semver string.</param>
+/// <param name="MetadataRevisionNumber">Metadata revision number bound to the release.</param>
 internal sealed record UpdateTitleReleaseRequest(
     string Version,
     int MetadataRevisionNumber) : ITitleReleaseRequest;
 
+/// <summary>
+/// Request payload for creating or updating a release artifact.
+/// </summary>
+/// <param name="ArtifactKind">Artifact kind identifier.</param>
+/// <param name="PackageName">Android package identifier.</param>
+/// <param name="VersionCode">Android version code.</param>
+/// <param name="Sha256">Optional SHA-256 checksum.</param>
+/// <param name="FileSizeBytes">Optional artifact size in bytes.</param>
 internal sealed record UpsertReleaseArtifactRequest(
     string ArtifactKind,
     string PackageName,
@@ -575,6 +604,18 @@ internal sealed record UpsertReleaseArtifactRequest(
     string? Sha256,
     long? FileSizeBytes);
 
+/// <summary>
+/// Title media asset DTO.
+/// </summary>
+/// <param name="Id">Media asset identifier.</param>
+/// <param name="MediaRole">Media slot role.</param>
+/// <param name="SourceUrl">Absolute media source URL.</param>
+/// <param name="AltText">Optional accessibility text.</param>
+/// <param name="MimeType">Optional MIME type.</param>
+/// <param name="Width">Optional media width in pixels.</param>
+/// <param name="Height">Optional media height in pixels.</param>
+/// <param name="CreatedAt">UTC creation timestamp.</param>
+/// <param name="UpdatedAt">UTC update timestamp.</param>
 internal sealed record TitleMediaAssetDto(
     Guid Id,
     string MediaRole,
@@ -586,12 +627,30 @@ internal sealed record TitleMediaAssetDto(
     DateTime CreatedAt,
     DateTime UpdatedAt);
 
+/// <summary>
+/// Currently active release summary DTO.
+/// </summary>
+/// <param name="Id">Release identifier.</param>
+/// <param name="Version">Release semver string.</param>
+/// <param name="MetadataRevisionNumber">Metadata revision number bound to the release.</param>
+/// <param name="PublishedAt">UTC publish timestamp.</param>
 internal sealed record CurrentTitleReleaseDto(
     Guid Id,
     string Version,
     int MetadataRevisionNumber,
     DateTime PublishedAt);
 
+/// <summary>
+/// Title release DTO.
+/// </summary>
+/// <param name="Id">Release identifier.</param>
+/// <param name="Version">Release semver string.</param>
+/// <param name="Status">Release lifecycle status.</param>
+/// <param name="MetadataRevisionNumber">Metadata revision number bound to the release.</param>
+/// <param name="IsCurrent">Whether the release is currently activated for the title.</param>
+/// <param name="PublishedAt">UTC publish timestamp when present.</param>
+/// <param name="CreatedAt">UTC creation timestamp.</param>
+/// <param name="UpdatedAt">UTC update timestamp.</param>
 internal sealed record TitleReleaseDto(
     Guid Id,
     string Version,
@@ -602,6 +661,17 @@ internal sealed record TitleReleaseDto(
     DateTime CreatedAt,
     DateTime UpdatedAt);
 
+/// <summary>
+/// Release artifact DTO.
+/// </summary>
+/// <param name="Id">Artifact identifier.</param>
+/// <param name="ArtifactKind">Artifact kind identifier.</param>
+/// <param name="PackageName">Android package identifier.</param>
+/// <param name="VersionCode">Android version code.</param>
+/// <param name="Sha256">Optional SHA-256 checksum.</param>
+/// <param name="FileSizeBytes">Optional artifact size in bytes.</param>
+/// <param name="CreatedAt">UTC creation timestamp.</param>
+/// <param name="UpdatedAt">UTC update timestamp.</param>
 internal sealed record ReleaseArtifactDto(
     Guid Id,
     string ArtifactKind,
@@ -612,14 +682,38 @@ internal sealed record ReleaseArtifactDto(
     DateTime CreatedAt,
     DateTime UpdatedAt);
 
+/// <summary>
+/// Response wrapper for title media asset listings.
+/// </summary>
+/// <param name="MediaAssets">Configured media assets.</param>
 internal sealed record TitleMediaAssetListResponse(IReadOnlyList<TitleMediaAssetDto> MediaAssets);
 
+/// <summary>
+/// Response wrapper for a title media asset.
+/// </summary>
+/// <param name="MediaAsset">Title media asset details.</param>
 internal sealed record TitleMediaAssetResponse(TitleMediaAssetDto MediaAsset);
 
+/// <summary>
+/// Response wrapper for title release listings.
+/// </summary>
+/// <param name="Releases">Configured releases.</param>
 internal sealed record TitleReleaseListResponse(IReadOnlyList<TitleReleaseDto> Releases);
 
+/// <summary>
+/// Response wrapper for a title release.
+/// </summary>
+/// <param name="Release">Title release details.</param>
 internal sealed record TitleReleaseResponse(TitleReleaseDto Release);
 
+/// <summary>
+/// Response wrapper for release artifact listings.
+/// </summary>
+/// <param name="Artifacts">Configured release artifacts.</param>
 internal sealed record ReleaseArtifactListResponse(IReadOnlyList<ReleaseArtifactDto> Artifacts);
 
+/// <summary>
+/// Response wrapper for a release artifact.
+/// </summary>
+/// <param name="Artifact">Release artifact details.</param>
 internal sealed record ReleaseArtifactResponse(ReleaseArtifactDto Artifact);

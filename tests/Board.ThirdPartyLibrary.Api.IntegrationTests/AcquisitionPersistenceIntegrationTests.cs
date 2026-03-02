@@ -252,6 +252,224 @@ public sealed class AcquisitionPersistenceIntegrationTests : IAsyncLifetime
         await Assert.ThrowsAsync<DbUpdateException>(() => dbContext.SaveChangesAsync());
     }
 
+    [Fact]
+    public async Task Schema_WithSupportedAndCustomPublisherChoice_RejectsInvalidConnection()
+    {
+        await using var dbContext = CreateDbContext();
+        await dbContext.Database.MigrateAsync();
+
+        var organizationId = Guid.NewGuid();
+
+        dbContext.Organizations.Add(new Organization
+        {
+            Id = organizationId,
+            Slug = "stellar-forge",
+            DisplayName = "Stellar Forge",
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        dbContext.IntegrationConnections.Add(new IntegrationConnection
+        {
+            Id = Guid.NewGuid(),
+            OrganizationId = organizationId,
+            SupportedPublisherId = SupportedPublisherConfiguration.ItchIoId,
+            CustomPublisherDisplayName = "Should Fail",
+            CustomPublisherHomepageUrl = "https://invalid.example/",
+            IsEnabled = true,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow
+        });
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => dbContext.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task CreateIntegrationConnectionEndpoint_WithCustomPublisher_RoundTripsPersistedData()
+    {
+        await using (var migrationContext = CreateDbContext())
+        {
+            await migrationContext.Database.MigrateAsync();
+        }
+
+        var organizationId = Guid.NewGuid();
+        var editorUserId = Guid.NewGuid();
+
+        await using (var seedContext = CreateDbContext())
+        {
+            seedContext.Users.Add(new AppUser
+            {
+                Id = editorUserId,
+                KeycloakSubject = "editor-123",
+                DisplayName = "Editor User",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            seedContext.Organizations.Add(new Organization
+            {
+                Id = organizationId,
+                Slug = "stellar-forge",
+                DisplayName = "Stellar Forge",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            seedContext.OrganizationMemberships.Add(new OrganizationMembership
+            {
+                OrganizationId = organizationId,
+                UserId = editorUserId,
+                Role = "editor",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            await seedContext.SaveChangesAsync();
+        }
+
+        using var factory = new RealPostgresApiFactory(
+            _postgresContainer.GetConnectionString(),
+            [new Claim("sub", "editor-123"), new Claim("name", "Editor User")]);
+        using var client = factory.CreateClient();
+
+        using var createConnectionResponse = await client.PostAsJsonAsync(
+            $"/developer/organizations/{organizationId}/integration-connections",
+            new
+            {
+                customPublisherDisplayName = "Stellar Forge Direct",
+                customPublisherHomepageUrl = "https://store.stellar-forge.example/",
+                configuration = new
+                {
+                    checkoutMode = "external"
+                },
+                isEnabled = true
+            });
+        var createConnectionPayload = await createConnectionResponse.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.Created, createConnectionResponse.StatusCode);
+
+        using var createConnectionDocument = JsonDocument.Parse(createConnectionPayload);
+        var connection = createConnectionDocument.RootElement.GetProperty("integrationConnection");
+        Assert.Equal("Stellar Forge Direct", connection.GetProperty("customPublisherDisplayName").GetString());
+
+        using var listConnectionsResponse = await client.GetAsync($"/developer/organizations/{organizationId}/integration-connections");
+        var listConnectionsPayload = await listConnectionsResponse.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, listConnectionsResponse.StatusCode);
+
+        using var listConnectionsDocument = JsonDocument.Parse(listConnectionsPayload);
+        Assert.Equal(
+            "https://store.stellar-forge.example/",
+            listConnectionsDocument.RootElement.GetProperty("integrationConnections")[0].GetProperty("customPublisherHomepageUrl").GetString());
+    }
+
+    [Fact]
+    public async Task CreateTitleIntegrationBindingEndpoint_WithDisabledConnection_ReturnsConflict()
+    {
+        await using (var migrationContext = CreateDbContext())
+        {
+            await migrationContext.Database.MigrateAsync();
+        }
+
+        var organizationId = Guid.NewGuid();
+        var editorUserId = Guid.NewGuid();
+        var titleId = Guid.NewGuid();
+        var metadataId = Guid.NewGuid();
+        var connectionId = Guid.NewGuid();
+
+        await using (var seedContext = CreateDbContext())
+        {
+            seedContext.Users.Add(new AppUser
+            {
+                Id = editorUserId,
+                KeycloakSubject = "editor-123",
+                DisplayName = "Editor User",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            seedContext.Organizations.Add(new Organization
+            {
+                Id = organizationId,
+                Slug = "stellar-forge",
+                DisplayName = "Stellar Forge",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            seedContext.OrganizationMemberships.Add(new OrganizationMembership
+            {
+                OrganizationId = organizationId,
+                UserId = editorUserId,
+                Role = "editor",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            seedContext.Titles.Add(new Title
+            {
+                Id = titleId,
+                OrganizationId = organizationId,
+                Slug = "star-blasters",
+                ContentKind = "game",
+                LifecycleStatus = "testing",
+                Visibility = "listed",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            seedContext.TitleMetadataVersions.Add(new TitleMetadataVersion
+            {
+                Id = metadataId,
+                TitleId = titleId,
+                RevisionNumber = 1,
+                DisplayName = "Star Blasters",
+                ShortDescription = "Family space battles in short rounds.",
+                Description = "Pilot colorful starships through family-friendly arena battles built for the Board console.",
+                GenreDisplay = "Arcade Shooter",
+                MinPlayers = 1,
+                MaxPlayers = 4,
+                AgeRatingAuthority = "ESRB",
+                AgeRatingValue = "E10+",
+                MinAgeYears = 10,
+                IsFrozen = true,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            seedContext.IntegrationConnections.Add(new IntegrationConnection
+            {
+                Id = connectionId,
+                OrganizationId = organizationId,
+                CustomPublisherDisplayName = "Disabled Store",
+                CustomPublisherHomepageUrl = "https://disabled.example/",
+                IsEnabled = false,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            await seedContext.SaveChangesAsync();
+
+            var title = await seedContext.Titles.SingleAsync(candidate => candidate.Id == titleId);
+            title.CurrentMetadataVersionId = metadataId;
+            await seedContext.SaveChangesAsync();
+        }
+
+        using var factory = new RealPostgresApiFactory(
+            _postgresContainer.GetConnectionString(),
+            [new Claim("sub", "editor-123"), new Claim("name", "Editor User")]);
+        using var client = factory.CreateClient();
+
+        using var createBindingResponse = await client.PostAsJsonAsync(
+            $"/developer/titles/{titleId}/integration-bindings",
+            new
+            {
+                integrationConnectionId = connectionId,
+                acquisitionUrl = "https://disabled.example/star-blasters",
+                acquisitionLabel = "Disabled Store",
+                isPrimary = true,
+                isEnabled = true
+            });
+        var createBindingPayload = await createBindingResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Conflict, createBindingResponse.StatusCode);
+
+        using var createBindingDocument = JsonDocument.Parse(createBindingPayload);
+        Assert.Equal(
+            "title_integration_connection_disabled",
+            createBindingDocument.RootElement.GetProperty("code").GetString());
+    }
+
     private async Task SeedTitleWithConnectionsAsync(
         BoardLibraryDbContext dbContext,
         Guid organizationId,

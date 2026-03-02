@@ -115,6 +115,28 @@ public sealed class AcquisitionEndpointTests
     }
 
     [Fact]
+    public async Task GetCatalogTitleEndpoint_WithDisabledPrimaryBinding_OmitsAcquisitionDetails()
+    {
+        using var factory = new TestApiFactory();
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            await SeedPublicTitleWithAcquisitionAsync(dbContext, disableConnection: true);
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync("/catalog/stellar-forge/star-blasters");
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        var title = document.RootElement.GetProperty("title");
+        Assert.False(title.TryGetProperty("acquisition", out _));
+    }
+
+    [Fact]
     public async Task CreateIntegrationConnectionEndpoint_WithEditorMembership_PersistsSupportedPublisherConnection()
     {
         using var factory = new TestApiFactory(useTestAuthentication: true, testClaims: [new Claim("sub", "editor-123")]);
@@ -195,6 +217,71 @@ public sealed class AcquisitionEndpointTests
     }
 
     [Fact]
+    public async Task CreateIntegrationConnectionEndpoint_WithSupportedPublisherAndCustomDetails_ReturnsUnprocessableEntity()
+    {
+        using var factory = new TestApiFactory(useTestAuthentication: true, testClaims: [new Claim("sub", "editor-123")]);
+
+        Guid organizationId;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            organizationId = await SeedManagedOrganizationAsync(dbContext, "editor-123");
+            dbContext.SupportedPublishers.Add(new SupportedPublisher
+            {
+                Id = SupportedPublisherConfiguration.ItchIoId,
+                Key = "itch-io",
+                DisplayName = "itch.io",
+                HomepageUrl = "https://itch.io/",
+                IsEnabled = true,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.PostAsJsonAsync(
+            $"/developer/organizations/{organizationId}/integration-connections",
+            new
+            {
+                supportedPublisherId = SupportedPublisherConfiguration.ItchIoId,
+                customPublisherDisplayName = "Custom Store",
+                customPublisherHomepageUrl = "https://custom.example/",
+                isEnabled = true
+            });
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        Assert.True(document.RootElement.GetProperty("errors").TryGetProperty("publisher", out _));
+    }
+
+    [Fact]
+    public async Task CreateIntegrationConnectionEndpoint_WithUnknownSupportedPublisher_ReturnsNotFound()
+    {
+        using var factory = new TestApiFactory(useTestAuthentication: true, testClaims: [new Claim("sub", "editor-123")]);
+
+        Guid organizationId;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            organizationId = await SeedManagedOrganizationAsync(dbContext, "editor-123");
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.PostAsJsonAsync(
+            $"/developer/organizations/{organizationId}/integration-connections",
+            new
+            {
+                supportedPublisherId = Guid.NewGuid(),
+                isEnabled = true
+            });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
     public async Task DeleteIntegrationConnectionEndpoint_WhenBindingExists_ReturnsConflict()
     {
         using var factory = new TestApiFactory(useTestAuthentication: true, testClaims: [new Claim("sub", "editor-123")]);
@@ -248,6 +335,51 @@ public sealed class AcquisitionEndpointTests
 
         using var document = JsonDocument.Parse(payload);
         Assert.Equal("title_integration_organization_conflict", document.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task CreateTitleIntegrationBindingEndpoint_WithDisabledConnection_ReturnsConflict()
+    {
+        using var factory = new TestApiFactory(useTestAuthentication: true, testClaims: [new Claim("sub", "editor-123")]);
+
+        Guid titleId;
+        Guid disabledConnectionId;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            titleId = await SeedManagedTitleWithMetadataAsync(dbContext, "editor-123");
+            var title = await dbContext.Titles.SingleAsync(candidate => candidate.Id == titleId);
+            disabledConnectionId = Guid.NewGuid();
+            dbContext.IntegrationConnections.Add(new IntegrationConnection
+            {
+                Id = disabledConnectionId,
+                OrganizationId = title.OrganizationId,
+                CustomPublisherDisplayName = "Disabled Store",
+                CustomPublisherHomepageUrl = "https://disabled.example/",
+                IsEnabled = false,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.PostAsJsonAsync(
+            $"/developer/titles/{titleId}/integration-bindings",
+            new
+            {
+                integrationConnectionId = disabledConnectionId,
+                acquisitionUrl = "https://disabled.example/star-blasters",
+                acquisitionLabel = "Disabled Store",
+                isPrimary = true,
+                isEnabled = true
+            });
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        Assert.Equal("title_integration_connection_disabled", document.RootElement.GetProperty("code").GetString());
     }
 
     [Fact]
@@ -306,7 +438,7 @@ public sealed class AcquisitionEndpointTests
         Assert.Equal("title_integration_primary_required", document.RootElement.GetProperty("code").GetString());
     }
 
-    private static async Task SeedPublicTitleWithAcquisitionAsync(BoardLibraryDbContext dbContext)
+    private static async Task SeedPublicTitleWithAcquisitionAsync(BoardLibraryDbContext dbContext, bool disableConnection = false)
     {
         var organizationId = Guid.NewGuid();
         var titleId = Guid.NewGuid();
@@ -367,7 +499,7 @@ public sealed class AcquisitionEndpointTests
             Id = connectionId,
             OrganizationId = organizationId,
             SupportedPublisherId = SupportedPublisherConfiguration.ItchIoId,
-            IsEnabled = true,
+            IsEnabled = !disableConnection,
             CreatedAtUtc = DateTime.UtcNow,
             UpdatedAtUtc = DateTime.UtcNow
         });

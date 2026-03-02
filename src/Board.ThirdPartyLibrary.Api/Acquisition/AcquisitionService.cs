@@ -707,6 +707,14 @@ internal sealed class AcquisitionService(
             binding.UpdatedAtUtc);
 }
 
+/// <summary>
+/// Command payload for creating or updating an organization integration connection.
+/// </summary>
+/// <param name="SupportedPublisherId">Canonical supported publisher identifier when using a registry entry.</param>
+/// <param name="CustomPublisherDisplayName">Custom publisher display name when using an organization-owned custom connection.</param>
+/// <param name="CustomPublisherHomepageUrl">Custom publisher homepage URL when using an organization-owned custom connection.</param>
+/// <param name="Configuration">Optional provider-specific non-secret configuration object.</param>
+/// <param name="IsEnabled">Whether the connection can be selected for enabled bindings.</param>
 internal sealed record UpsertIntegrationConnectionCommand(
     Guid? SupportedPublisherId,
     string? CustomPublisherDisplayName,
@@ -714,6 +722,15 @@ internal sealed record UpsertIntegrationConnectionCommand(
     JsonElement? Configuration,
     bool IsEnabled);
 
+/// <summary>
+/// Command payload for creating or updating a title acquisition binding.
+/// </summary>
+/// <param name="IntegrationConnectionId">Referenced integration connection identifier.</param>
+/// <param name="AcquisitionUrl">Player-facing external acquisition URL.</param>
+/// <param name="AcquisitionLabel">Optional player-facing acquisition label.</param>
+/// <param name="Configuration">Optional provider-specific non-secret configuration object.</param>
+/// <param name="IsPrimary">Whether the binding is the active primary binding for the title.</param>
+/// <param name="IsEnabled">Whether the binding is available to players.</param>
 internal sealed record UpsertTitleIntegrationBindingCommand(
     Guid IntegrationConnectionId,
     string AcquisitionUrl,
@@ -722,12 +739,32 @@ internal sealed record UpsertTitleIntegrationBindingCommand(
     bool IsPrimary,
     bool IsEnabled);
 
+/// <summary>
+/// Projection of a supported publisher registry entry.
+/// </summary>
+/// <param name="Id">Supported publisher identifier.</param>
+/// <param name="Key">Stable machine-friendly publisher key.</param>
+/// <param name="DisplayName">Public publisher name.</param>
+/// <param name="HomepageUrl">Canonical publisher homepage URL.</param>
 internal sealed record SupportedPublisherSnapshot(
     Guid Id,
     string Key,
     string DisplayName,
     string HomepageUrl);
 
+/// <summary>
+/// Projection of an organization-owned integration connection.
+/// </summary>
+/// <param name="Id">Integration connection identifier.</param>
+/// <param name="OrganizationId">Owning organization identifier.</param>
+/// <param name="SupportedPublisherId">Linked supported publisher identifier when present.</param>
+/// <param name="SupportedPublisher">Canonical supported publisher details when present.</param>
+/// <param name="CustomPublisherDisplayName">Custom publisher display name when using a custom connection.</param>
+/// <param name="CustomPublisherHomepageUrl">Custom publisher homepage URL when using a custom connection.</param>
+/// <param name="Configuration">Optional provider-specific non-secret configuration object.</param>
+/// <param name="IsEnabled">Whether the connection can be selected for enabled bindings.</param>
+/// <param name="CreatedAtUtc">UTC creation timestamp.</param>
+/// <param name="UpdatedAtUtc">UTC update timestamp.</param>
 internal sealed record IntegrationConnectionSnapshot(
     Guid Id,
     Guid OrganizationId,
@@ -740,6 +777,20 @@ internal sealed record IntegrationConnectionSnapshot(
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc);
 
+/// <summary>
+/// Projection of a title acquisition binding.
+/// </summary>
+/// <param name="Id">Binding identifier.</param>
+/// <param name="TitleId">Owning title identifier.</param>
+/// <param name="IntegrationConnectionId">Referenced integration connection identifier.</param>
+/// <param name="IntegrationConnection">Referenced integration connection details.</param>
+/// <param name="AcquisitionUrl">Player-facing external acquisition URL.</param>
+/// <param name="AcquisitionLabel">Optional player-facing acquisition label.</param>
+/// <param name="Configuration">Optional provider-specific non-secret configuration object.</param>
+/// <param name="IsPrimary">Whether the binding is the active primary binding for the title.</param>
+/// <param name="IsEnabled">Whether the binding is available to players.</param>
+/// <param name="CreatedAtUtc">UTC creation timestamp.</param>
+/// <param name="UpdatedAtUtc">UTC update timestamp.</param>
 internal sealed record TitleIntegrationBindingSnapshot(
     Guid Id,
     Guid TitleId,
@@ -753,32 +804,67 @@ internal sealed record TitleIntegrationBindingSnapshot(
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc);
 
+/// <summary>
+/// Result wrapper for integration connection listings.
+/// </summary>
+/// <param name="Status">Operation status.</param>
+/// <param name="IntegrationConnections">Returned integration connections when available.</param>
 internal sealed record IntegrationConnectionListResult(
     AcquisitionListStatus Status,
     IReadOnlyList<IntegrationConnectionSnapshot>? IntegrationConnections = null);
 
+/// <summary>
+/// Result wrapper for single integration connection operations.
+/// </summary>
+/// <param name="Status">Operation status.</param>
+/// <param name="IntegrationConnection">Returned integration connection when available.</param>
+/// <param name="ErrorCode">Optional machine-readable conflict code.</param>
 internal sealed record IntegrationConnectionMutationResult(
     AcquisitionMutationStatus Status,
     IntegrationConnectionSnapshot? IntegrationConnection = null,
     string? ErrorCode = null);
 
+/// <summary>
+/// Result wrapper for integration connection deletion.
+/// </summary>
+/// <param name="Status">Operation status.</param>
+/// <param name="ErrorCode">Optional machine-readable conflict code.</param>
 internal sealed record IntegrationConnectionDeleteResult(
     AcquisitionMutationStatus Status,
     string? ErrorCode = null);
 
+/// <summary>
+/// Result wrapper for title acquisition binding listings.
+/// </summary>
+/// <param name="Status">Operation status.</param>
+/// <param name="IntegrationBindings">Returned title acquisition bindings when available.</param>
 internal sealed record TitleIntegrationBindingListResult(
     AcquisitionListStatus Status,
     IReadOnlyList<TitleIntegrationBindingSnapshot>? IntegrationBindings = null);
 
+/// <summary>
+/// Result wrapper for single title acquisition binding operations.
+/// </summary>
+/// <param name="Status">Operation status.</param>
+/// <param name="IntegrationBinding">Returned title acquisition binding when available.</param>
+/// <param name="ErrorCode">Optional machine-readable conflict code.</param>
 internal sealed record TitleIntegrationBindingMutationResult(
     AcquisitionMutationStatus Status,
     TitleIntegrationBindingSnapshot? IntegrationBinding = null,
     string? ErrorCode = null);
 
+/// <summary>
+/// Result wrapper for title acquisition binding deletion.
+/// </summary>
+/// <param name="Status">Operation status.</param>
+/// <param name="ErrorCode">Optional machine-readable conflict code.</param>
 internal sealed record TitleIntegrationBindingDeleteResult(
     AcquisitionMutationStatus Status,
     string? ErrorCode = null);
 
+/// <summary>
+/// Outcome codes for acquisition mutations.
+/// </summary>
 internal enum AcquisitionMutationStatus
 {
     Success,
@@ -787,6 +873,9 @@ internal enum AcquisitionMutationStatus
     Conflict
 }
 
+/// <summary>
+/// Outcome codes for acquisition listings.
+/// </summary>
 internal enum AcquisitionListStatus
 {
     Success,
@@ -794,6 +883,9 @@ internal enum AcquisitionListStatus
     Forbidden
 }
 
+/// <summary>
+/// Internal access resolution status for acquisition operations.
+/// </summary>
 internal enum AcquisitionAccessStatus
 {
     Success,
@@ -801,14 +893,27 @@ internal enum AcquisitionAccessStatus
     Forbidden
 }
 
+/// <summary>
+/// Authorized organization access resolution result.
+/// </summary>
+/// <param name="Status">Access resolution outcome.</param>
+/// <param name="Organization">Resolved organization when access succeeds.</param>
 internal sealed record AcquisitionOrganizationAccessResult(
     AcquisitionAccessStatus Status,
     Organization? Organization = null);
 
+/// <summary>
+/// Authorized title access resolution result.
+/// </summary>
+/// <param name="Status">Access resolution outcome.</param>
+/// <param name="Title">Resolved title when access succeeds.</param>
 internal sealed record AcquisitionTitleAccessResult(
     AcquisitionAccessStatus Status,
     Title? Title = null);
 
+/// <summary>
+/// Machine-readable error codes emitted by acquisition operations.
+/// </summary>
 internal static class AcquisitionErrorCodes
 {
     public const string IntegrationConnectionInUse = "integration_connection_in_use";

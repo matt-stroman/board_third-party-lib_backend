@@ -582,6 +582,7 @@ internal sealed record UpsertTitleMetadataRequest(
 /// <param name="MinAgeYears">Minimum recommended player age.</param>
 /// <param name="AgeDisplay">Derived public age display.</param>
 /// <param name="CardImageUrl">Card/list image URL when configured.</param>
+/// <param name="AcquisitionUrl">Primary acquisition URL when an active binding exists.</param>
 internal sealed record CatalogTitleSummaryDto(
     Guid Id,
     Guid OrganizationId,
@@ -627,8 +628,10 @@ internal sealed record CatalogTitleSummaryDto(
 /// <param name="MinAgeYears">Minimum recommended player age.</param>
 /// <param name="AgeDisplay">Derived public age display.</param>
 /// <param name="CardImageUrl">Card/list image URL when configured.</param>
+/// <param name="AcquisitionUrl">Primary acquisition URL when an active binding exists.</param>
 /// <param name="MediaAssets">Configured title media assets.</param>
 /// <param name="CurrentRelease">Currently active public release when present.</param>
+/// <param name="Acquisition">Detailed public acquisition summary when present.</param>
 /// <param name="CreatedAt">UTC timestamp when the title was created.</param>
 /// <param name="UpdatedAt">UTC timestamp when the title was last updated.</param>
 internal sealed record CatalogTitleDto(
@@ -682,8 +685,10 @@ internal sealed record CatalogTitleDto(
 /// <param name="MinAgeYears">Minimum recommended player age.</param>
 /// <param name="AgeDisplay">Derived public age display.</param>
 /// <param name="CardImageUrl">Card/list image URL when configured.</param>
+/// <param name="AcquisitionUrl">Primary acquisition URL when an active binding exists.</param>
 /// <param name="MediaAssets">Configured title media assets.</param>
 /// <param name="CurrentRelease">Currently active public release when present.</param>
+/// <param name="Acquisition">Detailed public acquisition summary when present.</param>
 /// <param name="CurrentReleaseId">Currently active release identifier when present.</param>
 /// <param name="CreatedAt">UTC timestamp when the title was created.</param>
 /// <param name="UpdatedAt">UTC timestamp when the title was last updated.</param>
@@ -719,6 +724,10 @@ internal sealed record DeveloperTitleDto(
 /// <summary>
 /// Public title acquisition DTO.
 /// </summary>
+/// <param name="Url">External acquisition URL.</param>
+/// <param name="Label">Optional player-facing acquisition label.</param>
+/// <param name="ProviderDisplayName">Provider name shown to players.</param>
+/// <param name="ProviderHomepageUrl">Canonical provider homepage URL when known.</param>
 internal sealed record PublicTitleAcquisitionDto(
     string Url,
     string? Label,

@@ -50,11 +50,10 @@ These concerns should not be duplicated in PostgreSQL as primary auth tables.
 PostgreSQL remains the source of truth for application-owned domain data, including:
 
 - organizations and memberships
-- titles, metadata, media assets, releases, and artifacts
-- provider integration configuration
+- titles, metadata, media assets, releases, artifacts, supported publishers, integration connections, and acquisition bindings
 - payment, entitlement, and install-delivery data when those areas are implemented
 - optional Board profile linkage/cache owned by this application
-- an application user projection, once persistence is introduced, for linking domain records to a Keycloak subject
+- an application user projection for linking domain records to a Keycloak subject
 
 Board profile persistence is implemented application data and is now part of the current API surface.
 

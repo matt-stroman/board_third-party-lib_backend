@@ -97,15 +97,15 @@ curl http://localhost:5085/identity/auth/config
 
 Current persistence note:
 
-- PostgreSQL is now used for backend readiness plus Wave 1 through Wave 4 persistence.
+- PostgreSQL is now used for backend readiness plus Wave 1 through Wave 5 persistence.
 - Keycloak owns authentication data, platform roles, and login/account lifecycle flows.
-- The maintained current API surface includes persisted Board profile CRUD, organizations/memberships, titles/versioned metadata, media assets, release history, and APK artifact metadata backed by PostgreSQL.
+- The maintained current API surface includes persisted Board profile CRUD, organizations/memberships, titles/versioned metadata, media assets, release history, APK artifact metadata, supported publishers, and external acquisition bindings backed by PostgreSQL.
 - See [`backend/docs/auth-data-ownership.md`](auth-data-ownership.md) for the current data ownership boundary.
 - See [`backend/docs/title-catalog-schema.md`](title-catalog-schema.md) for the current title/catalog schema and lifecycle model.
 
 ## Common Commands
 
-The root developer CLI command catalog (bootstrap/up/down/status/test/doctor and DB backup/restore helpers) is documented in:
+The root developer CLI command catalog (bootstrap/up/down/status/test/verify/doctor and DB backup/restore helpers) is documented in:
 
 - [`docs/developer-cli.md`](../../docs/developer-cli.md)
 
@@ -115,6 +115,7 @@ Common backend examples:
 python ./scripts/dev.py doctor
 python ./scripts/dev.py up --dependencies-only
 python ./scripts/dev.py status
+python ./scripts/dev.py verify --skip-contract-tests
 python ./scripts/dev.py test
 python ./scripts/dev.py test --skip-integration
 ```
