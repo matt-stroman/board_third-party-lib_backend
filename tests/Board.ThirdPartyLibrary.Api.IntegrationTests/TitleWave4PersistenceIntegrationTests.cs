@@ -381,6 +381,138 @@ public sealed class TitleWave4PersistenceIntegrationTests : IAsyncLifetime
         await Assert.ThrowsAsync<DbUpdateException>(() => dbContext.SaveChangesAsync());
     }
 
+    [Fact]
+    public async Task UpdateReleaseArtifactEndpoint_WithDuplicateIdentity_ReturnsConflict()
+    {
+        await using (var migrationContext = CreateDbContext())
+        {
+            await migrationContext.Database.MigrateAsync();
+        }
+
+        var organizationId = Guid.NewGuid();
+        var editorUserId = Guid.NewGuid();
+        var titleId = Guid.NewGuid();
+        var metadataId = Guid.NewGuid();
+        var releaseId = Guid.NewGuid();
+        var firstArtifactId = Guid.NewGuid();
+        var secondArtifactId = Guid.NewGuid();
+
+        await using (var seedContext = CreateDbContext())
+        {
+            seedContext.Users.Add(new AppUser
+            {
+                Id = editorUserId,
+                KeycloakSubject = "editor-123",
+                DisplayName = "Editor User",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            seedContext.Organizations.Add(new Organization
+            {
+                Id = organizationId,
+                Slug = "stellar-forge",
+                DisplayName = "Stellar Forge",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            seedContext.OrganizationMemberships.Add(new OrganizationMembership
+            {
+                OrganizationId = organizationId,
+                UserId = editorUserId,
+                Role = "editor",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            seedContext.Titles.Add(new Title
+            {
+                Id = titleId,
+                OrganizationId = organizationId,
+                Slug = "star-blasters",
+                ContentKind = "game",
+                LifecycleStatus = "draft",
+                Visibility = "private",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            seedContext.TitleMetadataVersions.Add(new TitleMetadataVersion
+            {
+                Id = metadataId,
+                TitleId = titleId,
+                RevisionNumber = 1,
+                DisplayName = "Star Blasters",
+                ShortDescription = "Short description.",
+                Description = "Description.",
+                GenreDisplay = "Arcade Shooter",
+                MinPlayers = 1,
+                MaxPlayers = 4,
+                AgeRatingAuthority = "ESRB",
+                AgeRatingValue = "E10+",
+                MinAgeYears = 10,
+                IsFrozen = false,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            seedContext.TitleReleases.Add(new TitleRelease
+            {
+                Id = releaseId,
+                TitleId = titleId,
+                MetadataVersionId = metadataId,
+                Version = "1.0.0",
+                Status = "draft",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            seedContext.ReleaseArtifacts.AddRange(
+                new ReleaseArtifact
+                {
+                    Id = firstArtifactId,
+                    ReleaseId = releaseId,
+                    ArtifactKind = "apk",
+                    PackageName = "fun.board.starblasters",
+                    VersionCode = 100,
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                },
+                new ReleaseArtifact
+                {
+                    Id = secondArtifactId,
+                    ReleaseId = releaseId,
+                    ArtifactKind = "apk",
+                    PackageName = "fun.board.puzzlegrove",
+                    VersionCode = 200,
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                });
+            await seedContext.SaveChangesAsync();
+
+            var title = await seedContext.Titles.SingleAsync(candidate => candidate.Id == titleId);
+            title.CurrentMetadataVersionId = metadataId;
+            await seedContext.SaveChangesAsync();
+        }
+
+        using var factory = new RealPostgresApiFactory(
+            _postgresContainer.GetConnectionString(),
+            [new Claim("sub", "editor-123"), new Claim("name", "Editor User")]);
+        using var client = factory.CreateClient();
+
+        using var response = await client.PutAsJsonAsync(
+            $"/developer/titles/{titleId}/releases/{releaseId}/artifacts/{firstArtifactId}",
+            new
+            {
+                artifactKind = "apk",
+                packageName = "fun.board.puzzlegrove",
+                versionCode = 200L,
+                sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                fileSizeBytes = 4096L
+            });
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        Assert.Equal("release_artifact_identity_conflict", document.RootElement.GetProperty("code").GetString());
+    }
+
     private async Task SeedTitleAsync(BoardLibraryDbContext dbContext, Guid organizationId, Guid titleId, string slug = "star-blasters")
     {
         if (!await dbContext.Organizations.AnyAsync(candidate => candidate.Id == organizationId))

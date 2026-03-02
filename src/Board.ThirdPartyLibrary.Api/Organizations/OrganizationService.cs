@@ -409,12 +409,39 @@ internal static class OrganizationRoles
     public const string Editor = "editor";
 }
 
+/// <summary>
+/// Command payload for creating an organization.
+/// </summary>
+/// <param name="Slug">Organization route key.</param>
+/// <param name="DisplayName">Public organization name.</param>
+/// <param name="Description">Optional public description.</param>
+/// <param name="LogoUrl">Optional public logo URL.</param>
 internal sealed record CreateOrganizationCommand(string Slug, string DisplayName, string? Description, string? LogoUrl);
 
+/// <summary>
+/// Command payload for updating an organization.
+/// </summary>
+/// <param name="Slug">Organization route key.</param>
+/// <param name="DisplayName">Public organization name.</param>
+/// <param name="Description">Optional public description.</param>
+/// <param name="LogoUrl">Optional public logo URL.</param>
 internal sealed record UpdateOrganizationCommand(string Slug, string DisplayName, string? Description, string? LogoUrl);
 
+/// <summary>
+/// Command payload for adding or updating an organization membership.
+/// </summary>
+/// <param name="MemberKeycloakSubject">Target member Keycloak subject.</param>
+/// <param name="Role">Organization-scoped membership role.</param>
 internal sealed record UpsertOrganizationMembershipCommand(string MemberKeycloakSubject, string Role);
 
+/// <summary>
+/// Public organization summary projection.
+/// </summary>
+/// <param name="Id">Organization identifier.</param>
+/// <param name="Slug">Organization route key.</param>
+/// <param name="DisplayName">Public organization name.</param>
+/// <param name="Description">Optional public description.</param>
+/// <param name="LogoUrl">Optional public logo URL.</param>
 internal sealed record OrganizationSummarySnapshot(
     Guid Id,
     string Slug,
@@ -422,6 +449,16 @@ internal sealed record OrganizationSummarySnapshot(
     string? Description,
     string? LogoUrl);
 
+/// <summary>
+/// Detailed organization projection.
+/// </summary>
+/// <param name="Id">Organization identifier.</param>
+/// <param name="Slug">Organization route key.</param>
+/// <param name="DisplayName">Public organization name.</param>
+/// <param name="Description">Optional public description.</param>
+/// <param name="LogoUrl">Optional public logo URL.</param>
+/// <param name="CreatedAtUtc">UTC creation timestamp.</param>
+/// <param name="UpdatedAtUtc">UTC update timestamp.</param>
 internal sealed record OrganizationSnapshot(
     Guid Id,
     string Slug,
@@ -431,6 +468,16 @@ internal sealed record OrganizationSnapshot(
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc);
 
+/// <summary>
+/// Organization membership projection.
+/// </summary>
+/// <param name="OrganizationId">Organization identifier.</param>
+/// <param name="KeycloakSubject">Target member Keycloak subject.</param>
+/// <param name="DisplayName">Cached member display name.</param>
+/// <param name="Email">Cached member email address.</param>
+/// <param name="Role">Organization-scoped membership role.</param>
+/// <param name="JoinedAtUtc">UTC timestamp when the member joined.</param>
+/// <param name="UpdatedAtUtc">UTC timestamp when the membership last changed.</param>
 internal sealed record OrganizationMembershipSnapshot(
     Guid OrganizationId,
     string KeycloakSubject,
@@ -440,18 +487,36 @@ internal sealed record OrganizationMembershipSnapshot(
     DateTime JoinedAtUtc,
     DateTime UpdatedAtUtc);
 
+/// <summary>
+/// Result wrapper for organization mutations.
+/// </summary>
+/// <param name="Status">Operation status.</param>
+/// <param name="Organization">Returned organization snapshot when available.</param>
 internal sealed record OrganizationMutationResult(
     OrganizationMutationStatus Status,
     OrganizationSnapshot? Organization = null);
 
+/// <summary>
+/// Result wrapper for membership listings.
+/// </summary>
+/// <param name="Status">Operation status.</param>
+/// <param name="Memberships">Returned memberships when available.</param>
 internal sealed record OrganizationMembershipListResult(
     OrganizationMembershipListStatus Status,
     IReadOnlyList<OrganizationMembershipSnapshot>? Memberships = null);
 
+/// <summary>
+/// Result wrapper for membership mutations.
+/// </summary>
+/// <param name="Status">Operation status.</param>
+/// <param name="Membership">Returned membership snapshot when available.</param>
 internal sealed record OrganizationMembershipMutationResult(
     OrganizationMembershipMutationStatus Status,
     OrganizationMembershipSnapshot? Membership = null);
 
+/// <summary>
+/// Outcome codes for organization create/update/get operations.
+/// </summary>
 internal enum OrganizationMutationStatus
 {
     Success,
@@ -460,6 +525,9 @@ internal enum OrganizationMutationStatus
     Conflict
 }
 
+/// <summary>
+/// Outcome codes for organization deletion.
+/// </summary>
 internal enum OrganizationDeleteStatus
 {
     Success,
@@ -467,6 +535,9 @@ internal enum OrganizationDeleteStatus
     Forbidden
 }
 
+/// <summary>
+/// Outcome codes for membership listings.
+/// </summary>
 internal enum OrganizationMembershipListStatus
 {
     Success,
@@ -474,6 +545,9 @@ internal enum OrganizationMembershipListStatus
     Forbidden
 }
 
+/// <summary>
+/// Outcome codes for membership mutations.
+/// </summary>
 internal enum OrganizationMembershipMutationStatus
 {
     Success,
@@ -483,6 +557,9 @@ internal enum OrganizationMembershipMutationStatus
     TargetUserNotFound
 }
 
+/// <summary>
+/// Outcome codes for membership deletion.
+/// </summary>
 internal enum OrganizationMembershipDeleteStatus
 {
     Success,

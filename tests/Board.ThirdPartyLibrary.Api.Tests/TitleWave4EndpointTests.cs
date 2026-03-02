@@ -204,6 +204,27 @@ public sealed class TitleWave4EndpointTests
     }
 
     [Fact]
+    public async Task DeleteTitleMediaAssetEndpoint_WithInvalidRole_ReturnsUnprocessableEntity()
+    {
+        using var factory = new TestApiFactory(useTestAuthentication: true, testClaims: [new Claim("sub", "editor-123")]);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            await SeedManagedTitleAsync(dbContext, "editor-123");
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.DeleteAsync($"/developer/titles/{Guid.NewGuid()}/media/poster");
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        Assert.True(document.RootElement.GetProperty("errors").TryGetProperty("mediaRole", out _));
+    }
+
+    [Fact]
     public async Task CreateTitleReleaseEndpoint_WithEditorMembership_PersistsDraftRelease()
     {
         using var factory = new TestApiFactory(useTestAuthentication: true, testClaims: [new Claim("sub", "editor-123")]);
@@ -271,6 +292,30 @@ public sealed class TitleWave4EndpointTests
         using var document = JsonDocument.Parse(payload);
         Assert.True(document.RootElement.GetProperty("errors").TryGetProperty("version", out _));
         Assert.True(document.RootElement.GetProperty("errors").TryGetProperty("metadataRevisionNumber", out _));
+    }
+
+    [Fact]
+    public async Task CreateTitleReleaseEndpoint_WhenMetadataRevisionIsMissing_ReturnsNotFound()
+    {
+        using var factory = new TestApiFactory(useTestAuthentication: true, testClaims: [new Claim("sub", "editor-123")]);
+
+        Guid titleId;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            titleId = await SeedManagedTitleAsync(dbContext, "editor-123");
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.PostAsJsonAsync(
+            $"/developer/titles/{titleId}/releases",
+            new
+            {
+                version = "1.0.0",
+                metadataRevisionNumber = 99
+            });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Fact]
