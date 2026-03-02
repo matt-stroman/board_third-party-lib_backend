@@ -11,6 +11,7 @@
 - [Seed Data Strategy](#seed-data-strategy)
 - [Testing Strategy](#testing-strategy)
 - [Execution Workflow](#execution-workflow)
+- [Pre-Implementation Research Notes](#pre-implementation-research-notes)
 - [Next Implementation Tasks](#next-implementation-tasks)
 
 ## Purpose
@@ -71,15 +72,15 @@ Implemented now:
 
 Still planned within MVP:
 
-- external integration connections/bindings (content-host oriented)
+- external acquisition connections/bindings for publisher-agnostic title linking
 
 Deferred beyond the current implemented baseline:
 
 - local projection tables for platform roles unless a concrete reporting/query need appears
-- payments / checkout / orders / entitlements
+- unified payments / checkout / orders / entitlements
 - full taxonomy normalization (genre taxonomy, etc.)
 - advanced moderation workflows
-- Board profile/device deep integration (pending SDK/API capability)
+- Board-native download and install orchestration (pending SDK/API capability)
 
 ## Implementation Approach (EF Core + PostgreSQL)
 
@@ -191,7 +192,7 @@ Key notes:
 - artifact rows currently store install metadata only (`package_name`, `version_code`, optional hash/size); delivery/download URLs remain out of scope for this wave.
 - the implementation migration is [`backend/src/Board.ThirdPartyLibrary.Api/Persistence/Migrations/20260302010127_Wave4MediaReleasesArtifacts.cs`](../src/Board.ThirdPartyLibrary.Api/Persistence/Migrations/20260302010127_Wave4MediaReleasesArtifacts.cs).
 
-### Wave 5: External Integrations (Content Hosting)
+### Wave 5: External Acquisition Bindings
 
 Tables:
 
@@ -200,9 +201,59 @@ Tables:
 
 Key notes:
 
-- Focus on content-host integration roles in MVP (free APK links / external hosting).
-- Keep provider-specific settings in `jsonb`.
-- Defer payment provider roles until commerce is in scope.
+- Focus on publisher-agnostic external acquisition binding, not provider-specific checkout orchestration.
+- Organization-level `integration_connections` should be reusable references to external publishers/stores.
+- Title-level `title_integration_bindings` should provide the player-facing acquisition target for a title, such as an external store page URL.
+- Wave 5 should model where a title is acquired, not yet how payment, download, or installation are executed inside the library.
+- Keep provider-specific settings in `jsonb`, but do not require deep provider logic for MVP.
+- Support both named providers (for example `itch_io`) and generic/custom publisher connections.
+- Public API exposure should remain limited to acquisition metadata appropriate for link-out flows.
+
+### Wave 6: Unified Commerce And Entitlements
+
+Tables likely required:
+
+- `orders`
+- `order_line_items`
+- `entitlements`
+- provider-specific payment/session tables as needed
+
+Key notes:
+
+- This wave should unify purchase and entitlement state inside the library rather than redirecting users to external stores only.
+- Payment-provider integration belongs here, not in Wave 5.
+- Ownership/entitlement must be modeled before download/install can become first-party behavior.
+
+### Wave 7: Board-Native Delivery And Install
+
+Tables likely required:
+
+- delivery/install job tables
+- device linkage/install-state tables if Board capabilities require them
+
+Key notes:
+
+- This wave should make download and installation a Board-native flow.
+- Artifact delivery URLs and Board-specific install orchestration belong here, after entitlement rules are defined.
+- Exact schema shape should wait for better Board SDK/device capability information.
+
+## Pre-Implementation Research Notes
+
+Wave 5 should be designed from the capabilities that real third-party platforms expose today, not from an assumed future integration model.
+
+Current planning conclusion:
+
+- design Wave 5 around generic external acquisition bindings first
+- treat provider-specific payment/download/install behavior as optional future enhancements
+- avoid requiring any publisher-specific API before the generic link-out model ships
+
+Research summary:
+
+- itch.io officially exposes API keys and OAuth applications for API access, and also provides embeddable widgets suitable for external acquisition/link-out experiences. This suggests itch.io can support richer future integrations, but Wave 5 does not need to depend on them for MVP.
+- Game Jolt officially exposes a Game API oriented around game-side features such as sessions, scores, trophies, data storage, and package retrieval. That is useful context, but it is not the same as a generalized storefront checkout/install API for the library.
+- Humble Bundle remains important as a publisher/store candidate, but a public self-serve integration/API surface was not confirmed during this planning pass from accessible official documentation. For Wave 5 planning, treat Humble as compatible with generic external acquisition URLs unless partner-only capabilities are confirmed later.
+
+Maintained research notes for this planning pass live in [`planning/wave-5-publisher-research-notes.md`](../../planning/wave-5-publisher-research-notes.md).
 
 ## Schema Conventions
 
@@ -320,9 +371,9 @@ Recommended developer workflow (schema changes):
 Planned next backend work items (code-first):
 
 1. Keep Keycloak realm import aligned with the backend platform role catalog and future brokered SSO providers
-2. Design and implement Wave 5 external integration entities and API flows
-3. Define how Board-device delivery/install should relate to release artifacts before adding artifact URLs
-4. Add contract and backend coverage for integration binding edge cases once Wave 5 starts
-5. Reassess commerce scope only after integration and device-install constraints are better understood
+2. Finalize the Wave 5 publisher capability matrix before locking the acquisition-binding contract
+3. Design and implement Wave 5 external acquisition entities and API flows
+4. Define Wave 6 commerce/entitlement boundaries before adding payment-provider-specific fields
+5. Define how Wave 7 Board-native delivery/install should relate to release artifacts before adding artifact URLs
 
 This plan keeps database schema definition fully reproducible from code while minimizing documentation duplication.

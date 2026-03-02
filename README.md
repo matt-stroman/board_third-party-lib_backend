@@ -5,7 +5,7 @@ A backend service for third party developers for the Board ecosystem to use to r
 Current implementation status:
 
 - implemented now: health endpoints, Keycloak-backed identity/auth foundation, Wave 1 persistence for `users` and `user_board_profiles`, Wave 2 organizations and memberships, and Waves 3 and 4 title/catalog persistence
-- planned next: Wave 5 external integration connections/bindings
+- planned next: Wave 5 external acquisition bindings
 
 ## Table of Contents
 
