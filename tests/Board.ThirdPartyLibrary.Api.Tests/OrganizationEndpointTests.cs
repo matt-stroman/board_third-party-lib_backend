@@ -256,6 +256,7 @@ public sealed class OrganizationEndpointTests
         Assert.True(errors.TryGetProperty("logoUrl", out _));
     }
 
+
     /// <summary>
     /// Verifies organization owners can update organization details.
     /// </summary>
@@ -326,6 +327,138 @@ public sealed class OrganizationEndpointTests
         Assert.Equal("Stellar Forge Studio", organization.DisplayName);
         Assert.Equal("Updated description.", organization.Description);
     }
+
+    /// <summary>
+    /// Verifies organization updates reject invalid payloads.
+    /// </summary>
+    [Fact]
+    public async Task UpdateOrganizationEndpoint_WithInvalidPayload_ReturnsUnprocessableEntity()
+    {
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "owner-123"),
+                new Claim(ClaimTypes.Role, "developer")
+            ]);
+        using var client = factory.CreateClient();
+
+        using var response = await client.PutAsJsonAsync(
+            $"/developer/organizations/{Guid.NewGuid()}",
+            new
+            {
+                slug = "Invalid Slug",
+                displayName = "",
+                logoUrl = "notaurl"
+            });
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal((HttpStatusCode)StatusCodes.Status422UnprocessableEntity, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        var errors = document.RootElement.GetProperty("errors");
+        Assert.True(errors.TryGetProperty("slug", out _));
+        Assert.True(errors.TryGetProperty("displayName", out _));
+        Assert.True(errors.TryGetProperty("logoUrl", out _));
+    }
+
+    /// <summary>
+    /// Verifies only owners or admins can update organization details.
+    /// </summary>
+    [Fact]
+    public async Task UpdateOrganizationEndpoint_WithoutManagementMembership_ReturnsForbidden()
+    {
+        var organizationId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "editor-123"),
+                new Claim(ClaimTypes.Role, "developer")
+            ]);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            dbContext.Users.Add(new AppUser
+            {
+                Id = userId,
+                KeycloakSubject = "editor-123",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            dbContext.Organizations.Add(new Organization
+            {
+                Id = organizationId,
+                Slug = "stellar-forge",
+                DisplayName = "Stellar Forge",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            dbContext.OrganizationMemberships.Add(new OrganizationMembership
+            {
+                OrganizationId = organizationId,
+                UserId = userId,
+                Role = "editor",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.PutAsJsonAsync(
+            $"/developer/organizations/{organizationId}",
+            new
+            {
+                slug = "stellar-forge-updated",
+                displayName = "Stellar Forge Updated"
+            });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    /// <summary>
+    /// Verifies organization updates return not found for missing organizations.
+    /// </summary>
+    [Fact]
+    public async Task UpdateOrganizationEndpoint_WhenOrganizationIsMissing_ReturnsNotFound()
+    {
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "owner-123"),
+                new Claim(ClaimTypes.Role, "developer")
+            ]);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            dbContext.Users.Add(new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "owner-123",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.PutAsJsonAsync(
+            $"/developer/organizations/{Guid.NewGuid()}",
+            new
+            {
+                slug = "stellar-forge-updated",
+                displayName = "Stellar Forge Updated"
+            });
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
 
     /// <summary>
     /// Verifies only organization owners or admins can view membership listings.
@@ -453,6 +586,39 @@ public sealed class OrganizationEndpointTests
     }
 
     /// <summary>
+    /// Verifies membership listing returns not found for missing organizations.
+    /// </summary>
+    [Fact]
+    public async Task ListMembershipsEndpoint_WhenOrganizationIsMissing_ReturnsNotFound()
+    {
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "owner-123"),
+                new Claim(ClaimTypes.Role, "developer")
+            ]);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            dbContext.Users.Add(new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "owner-123",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync($"/developer/organizations/{Guid.NewGuid()}/memberships");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    /// <summary>
     /// Verifies owners can add or update memberships by target Keycloak subject.
     /// </summary>
     [Fact]
@@ -528,6 +694,162 @@ public sealed class OrganizationEndpointTests
     }
 
     /// <summary>
+    /// Verifies invalid membership roles are rejected before the service executes.
+    /// </summary>
+    [Fact]
+    public async Task UpsertMembershipEndpoint_WithInvalidRole_ReturnsUnprocessableEntity()
+    {
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "owner-123"),
+                new Claim(ClaimTypes.Role, "developer")
+            ]);
+        using var client = factory.CreateClient();
+
+        using var response = await client.PutAsJsonAsync(
+            $"/developer/organizations/{Guid.NewGuid()}/memberships/editor-456",
+            new
+            {
+                role = "viewer"
+            });
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal((HttpStatusCode)StatusCodes.Status422UnprocessableEntity, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        Assert.True(document.RootElement.GetProperty("errors").TryGetProperty("role", out _));
+    }
+
+    /// <summary>
+    /// Verifies membership updates return a problem payload when the target user is missing locally.
+    /// </summary>
+    [Fact]
+    public async Task UpsertMembershipEndpoint_WhenTargetUserIsMissing_ReturnsNotFoundProblem()
+    {
+        var organizationId = Guid.NewGuid();
+        var ownerUserId = Guid.NewGuid();
+
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "owner-123"),
+                new Claim(ClaimTypes.Role, "developer")
+            ]);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            dbContext.Users.Add(new AppUser
+            {
+                Id = ownerUserId,
+                KeycloakSubject = "owner-123",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            dbContext.Organizations.Add(new Organization
+            {
+                Id = organizationId,
+                Slug = "stellar-forge",
+                DisplayName = "Stellar Forge",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            dbContext.OrganizationMemberships.Add(new OrganizationMembership
+            {
+                OrganizationId = organizationId,
+                UserId = ownerUserId,
+                Role = "owner",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.PutAsJsonAsync(
+            $"/developer/organizations/{organizationId}/memberships/missing-user",
+            new
+            {
+                role = "editor"
+            });
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        Assert.Equal("organization_member_target_not_found", document.RootElement.GetProperty("code").GetString());
+    }
+
+    /// <summary>
+    /// Verifies non-managers cannot change memberships.
+    /// </summary>
+    [Fact]
+    public async Task UpsertMembershipEndpoint_WithoutManagementMembership_ReturnsForbidden()
+    {
+        var organizationId = Guid.NewGuid();
+        var editorUserId = Guid.NewGuid();
+        var targetUserId = Guid.NewGuid();
+
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "editor-123"),
+                new Claim(ClaimTypes.Role, "developer")
+            ]);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            dbContext.Users.AddRange(
+                new AppUser
+                {
+                    Id = editorUserId,
+                    KeycloakSubject = "editor-123",
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                },
+                new AppUser
+                {
+                    Id = targetUserId,
+                    KeycloakSubject = "owner-456",
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                });
+            dbContext.Organizations.Add(new Organization
+            {
+                Id = organizationId,
+                Slug = "stellar-forge",
+                DisplayName = "Stellar Forge",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            dbContext.OrganizationMemberships.Add(new OrganizationMembership
+            {
+                OrganizationId = organizationId,
+                UserId = editorUserId,
+                Role = "editor",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.PutAsJsonAsync(
+            $"/developer/organizations/{organizationId}/memberships/owner-456",
+            new
+            {
+                role = "admin"
+            });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    /// <summary>
     /// Verifies the last owner cannot be removed from an organization.
     /// </summary>
     [Fact]
@@ -577,6 +899,128 @@ public sealed class OrganizationEndpointTests
         using var response = await client.DeleteAsync($"/developer/organizations/{organizationId}/memberships/owner-123");
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    /// <summary>
+    /// Verifies membership deletion returns not found when the target membership does not exist.
+    /// </summary>
+    [Fact]
+    public async Task DeleteMembershipEndpoint_WhenMembershipIsMissing_ReturnsNotFound()
+    {
+        var organizationId = Guid.NewGuid();
+        var ownerUserId = Guid.NewGuid();
+
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "owner-123"),
+                new Claim(ClaimTypes.Role, "developer")
+            ]);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            dbContext.Users.Add(new AppUser
+            {
+                Id = ownerUserId,
+                KeycloakSubject = "owner-123",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            dbContext.Organizations.Add(new Organization
+            {
+                Id = organizationId,
+                Slug = "stellar-forge",
+                DisplayName = "Stellar Forge",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            dbContext.OrganizationMemberships.Add(new OrganizationMembership
+            {
+                OrganizationId = organizationId,
+                UserId = ownerUserId,
+                Role = "owner",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.DeleteAsync($"/developer/organizations/{organizationId}/memberships/missing-user");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    /// <summary>
+    /// Verifies non-managers cannot delete memberships.
+    /// </summary>
+    [Fact]
+    public async Task DeleteMembershipEndpoint_WithoutManagementMembership_ReturnsForbidden()
+    {
+        var organizationId = Guid.NewGuid();
+        var editorUserId = Guid.NewGuid();
+        var ownerUserId = Guid.NewGuid();
+
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "editor-123"),
+                new Claim(ClaimTypes.Role, "developer")
+            ]);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            dbContext.Users.AddRange(
+                new AppUser
+                {
+                    Id = editorUserId,
+                    KeycloakSubject = "editor-123",
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                },
+                new AppUser
+                {
+                    Id = ownerUserId,
+                    KeycloakSubject = "owner-456",
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                });
+            dbContext.Organizations.Add(new Organization
+            {
+                Id = organizationId,
+                Slug = "stellar-forge",
+                DisplayName = "Stellar Forge",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            dbContext.OrganizationMemberships.AddRange(
+                new OrganizationMembership
+                {
+                    OrganizationId = organizationId,
+                    UserId = editorUserId,
+                    Role = "editor",
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                },
+                new OrganizationMembership
+                {
+                    OrganizationId = organizationId,
+                    UserId = ownerUserId,
+                    Role = "owner",
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.DeleteAsync($"/developer/organizations/{organizationId}/memberships/owner-456");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     /// <summary>
@@ -635,6 +1079,91 @@ public sealed class OrganizationEndpointTests
 
         Assert.False(await verificationDbContext.Organizations.AnyAsync(candidate => candidate.Id == organizationId));
         Assert.False(await verificationDbContext.OrganizationMemberships.AnyAsync(candidate => candidate.OrganizationId == organizationId));
+    }
+
+    /// <summary>
+    /// Verifies only owners can delete organizations.
+    /// </summary>
+    [Fact]
+    public async Task DeleteOrganizationEndpoint_WithoutOwnerMembership_ReturnsForbidden()
+    {
+        var organizationId = Guid.NewGuid();
+        var adminUserId = Guid.NewGuid();
+
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "admin-123"),
+                new Claim(ClaimTypes.Role, "developer")
+            ]);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            dbContext.Users.Add(new AppUser
+            {
+                Id = adminUserId,
+                KeycloakSubject = "admin-123",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            dbContext.Organizations.Add(new Organization
+            {
+                Id = organizationId,
+                Slug = "stellar-forge",
+                DisplayName = "Stellar Forge",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            dbContext.OrganizationMemberships.Add(new OrganizationMembership
+            {
+                OrganizationId = organizationId,
+                UserId = adminUserId,
+                Role = "admin",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.DeleteAsync($"/developer/organizations/{organizationId}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    /// <summary>
+    /// Verifies delete requests return not found for missing organizations.
+    /// </summary>
+    [Fact]
+    public async Task DeleteOrganizationEndpoint_WhenOrganizationIsMissing_ReturnsNotFound()
+    {
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "owner-123"),
+                new Claim(ClaimTypes.Role, "developer")
+            ]);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            dbContext.Users.Add(new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "owner-123",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.DeleteAsync($"/developer/organizations/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     private sealed class TestApiFactory : WebApplicationFactory<Program>

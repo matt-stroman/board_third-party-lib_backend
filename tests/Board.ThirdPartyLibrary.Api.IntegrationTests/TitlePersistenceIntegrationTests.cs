@@ -413,6 +413,250 @@ public sealed class TitlePersistenceIntegrationTests : IAsyncLifetime
         await Assert.ThrowsAsync<DbUpdateException>(() => dbContext.SaveChangesAsync());
     }
 
+    /// <summary>
+    /// Verifies duplicate title creation returns the public conflict payload against PostgreSQL.
+    /// </summary>
+    [Fact]
+    public async Task CreateTitleEndpoint_WithDuplicateSlug_ReturnsConflict()
+    {
+        await using (var migrationContext = CreateDbContext())
+        {
+            await migrationContext.Database.MigrateAsync();
+        }
+
+        var organizationId = Guid.NewGuid();
+        var editorUserId = Guid.NewGuid();
+
+        await using (var seedContext = CreateDbContext())
+        {
+            seedContext.Users.Add(new AppUser
+            {
+                Id = editorUserId,
+                KeycloakSubject = "editor-123",
+                DisplayName = "Editor User",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            seedContext.Organizations.Add(new Organization
+            {
+                Id = organizationId,
+                Slug = "stellar-forge",
+                DisplayName = "Stellar Forge",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            seedContext.OrganizationMemberships.Add(new OrganizationMembership
+            {
+                OrganizationId = organizationId,
+                UserId = editorUserId,
+                Role = "editor",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            await seedContext.SaveChangesAsync();
+        }
+
+        using var factory = new RealPostgresApiFactory(
+            _postgresContainer.GetConnectionString(),
+            [
+                new Claim("sub", "editor-123"),
+                new Claim("name", "Editor User")
+            ]);
+        using var client = factory.CreateClient();
+
+        using var firstResponse = await client.PostAsJsonAsync(
+            $"/developer/organizations/{organizationId}/titles",
+            new
+            {
+                slug = "star-blasters",
+                contentKind = "game",
+                lifecycleStatus = "draft",
+                visibility = "private",
+                metadata = new
+                {
+                    displayName = "Star Blasters",
+                    shortDescription = "Family space battles in short rounds.",
+                    description = "Pilot colorful starships in family-friendly arena battles.",
+                    genreDisplay = "Arcade Shooter",
+                    minPlayers = 1,
+                    maxPlayers = 4,
+                    ageRatingAuthority = "ESRB",
+                    ageRatingValue = "E10+",
+                    minAgeYears = 10
+                }
+            });
+        Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
+
+        using var secondResponse = await client.PostAsJsonAsync(
+            $"/developer/organizations/{organizationId}/titles",
+            new
+            {
+                slug = "star-blasters",
+                contentKind = "game",
+                lifecycleStatus = "draft",
+                visibility = "private",
+                metadata = new
+                {
+                    displayName = "Duplicate Star Blasters",
+                    shortDescription = "Duplicate short description.",
+                    description = "Duplicate description.",
+                    genreDisplay = "Arcade Shooter",
+                    minPlayers = 1,
+                    maxPlayers = 4,
+                    ageRatingAuthority = "ESRB",
+                    ageRatingValue = "E10+",
+                    minAgeYears = 10
+                }
+            });
+        var payload = await secondResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Conflict, secondResponse.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        Assert.Equal("title_slug_conflict", document.RootElement.GetProperty("code").GetString());
+    }
+
+    /// <summary>
+    /// Verifies title updates return the public conflict payload when a duplicate slug is requested.
+    /// </summary>
+    [Fact]
+    public async Task UpdateTitleEndpoint_WithDuplicateSlug_ReturnsConflict()
+    {
+        await using (var migrationContext = CreateDbContext())
+        {
+            await migrationContext.Database.MigrateAsync();
+        }
+
+        var organizationId = Guid.NewGuid();
+        var editorUserId = Guid.NewGuid();
+        var firstTitleId = Guid.NewGuid();
+        var secondTitleId = Guid.NewGuid();
+        var firstMetadataId = Guid.NewGuid();
+        var secondMetadataId = Guid.NewGuid();
+
+        await using (var seedContext = CreateDbContext())
+        {
+            seedContext.Users.Add(new AppUser
+            {
+                Id = editorUserId,
+                KeycloakSubject = "editor-123",
+                DisplayName = "Editor User",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            seedContext.Organizations.Add(new Organization
+            {
+                Id = organizationId,
+                Slug = "stellar-forge",
+                DisplayName = "Stellar Forge",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            seedContext.OrganizationMemberships.Add(new OrganizationMembership
+            {
+                OrganizationId = organizationId,
+                UserId = editorUserId,
+                Role = "editor",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            seedContext.Titles.AddRange(
+                new Title
+                {
+                    Id = firstTitleId,
+                    OrganizationId = organizationId,
+                    Slug = "star-blasters",
+                    ContentKind = "game",
+                    LifecycleStatus = "draft",
+                    Visibility = "private",
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                },
+                new Title
+                {
+                    Id = secondTitleId,
+                    OrganizationId = organizationId,
+                    Slug = "puzzle-grove",
+                    ContentKind = "game",
+                    LifecycleStatus = "draft",
+                    Visibility = "private",
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                });
+            await seedContext.SaveChangesAsync();
+
+            seedContext.TitleMetadataVersions.AddRange(
+                new TitleMetadataVersion
+                {
+                    Id = firstMetadataId,
+                    TitleId = firstTitleId,
+                    RevisionNumber = 1,
+                    DisplayName = "Star Blasters",
+                    ShortDescription = "First short description.",
+                    Description = "First description.",
+                    GenreDisplay = "Arcade Shooter",
+                    MinPlayers = 1,
+                    MaxPlayers = 4,
+                    AgeRatingAuthority = "ESRB",
+                    AgeRatingValue = "E10+",
+                    MinAgeYears = 10,
+                    IsFrozen = false,
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                },
+                new TitleMetadataVersion
+                {
+                    Id = secondMetadataId,
+                    TitleId = secondTitleId,
+                    RevisionNumber = 1,
+                    DisplayName = "Puzzle Grove",
+                    ShortDescription = "Second short description.",
+                    Description = "Second description.",
+                    GenreDisplay = "Puzzle",
+                    MinPlayers = 1,
+                    MaxPlayers = 1,
+                    AgeRatingAuthority = "PEGI",
+                    AgeRatingValue = "3",
+                    MinAgeYears = 3,
+                    IsFrozen = false,
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                });
+            await seedContext.SaveChangesAsync();
+
+            var titles = await seedContext.Titles
+                .Where(candidate => candidate.Id == firstTitleId || candidate.Id == secondTitleId)
+                .ToListAsync();
+            titles.Single(candidate => candidate.Id == firstTitleId).CurrentMetadataVersionId = firstMetadataId;
+            titles.Single(candidate => candidate.Id == secondTitleId).CurrentMetadataVersionId = secondMetadataId;
+            await seedContext.SaveChangesAsync();
+        }
+
+        using var factory = new RealPostgresApiFactory(
+            _postgresContainer.GetConnectionString(),
+            [
+                new Claim("sub", "editor-123"),
+                new Claim("name", "Editor User")
+            ]);
+        using var client = factory.CreateClient();
+
+        using var response = await client.PutAsJsonAsync(
+            $"/developer/titles/{secondTitleId}",
+            new
+            {
+                slug = "star-blasters",
+                contentKind = "game",
+                lifecycleStatus = "draft",
+                visibility = "private"
+            });
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        Assert.Equal("title_slug_conflict", document.RootElement.GetProperty("code").GetString());
+    }
+
     private BoardLibraryDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<BoardLibraryDbContext>()

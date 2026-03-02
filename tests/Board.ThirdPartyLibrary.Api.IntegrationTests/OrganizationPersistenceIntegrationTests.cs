@@ -225,6 +225,127 @@ public sealed class OrganizationPersistenceIntegrationTests : IAsyncLifetime
         await Assert.ThrowsAsync<DbUpdateException>(() => verificationContext.SaveChangesAsync());
     }
 
+    /// <summary>
+    /// Verifies duplicate organization creation returns the public conflict payload against PostgreSQL.
+    /// </summary>
+    [Fact]
+    public async Task CreateOrganizationEndpoint_WithDuplicateSlug_ReturnsConflict()
+    {
+        await using (var migrationContext = CreateDbContext())
+        {
+            await migrationContext.Database.MigrateAsync();
+        }
+
+        using var factory = new RealPostgresApiFactory(
+            _postgresContainer.GetConnectionString(),
+            [
+                new Claim("sub", "owner-123"),
+                new Claim("name", "Owner User"),
+                new Claim(ClaimTypes.Role, "developer")
+            ]);
+        using var client = factory.CreateClient();
+
+        using var firstResponse = await client.PostAsJsonAsync(
+            "/organizations",
+            new
+            {
+                slug = "stellar-forge",
+                displayName = "Stellar Forge"
+            });
+        Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
+
+        using var secondResponse = await client.PostAsJsonAsync(
+            "/organizations",
+            new
+            {
+                slug = "stellar-forge",
+                displayName = "Duplicate Stellar Forge"
+            });
+        var payload = await secondResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Conflict, secondResponse.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        Assert.Equal("organization_slug_conflict", document.RootElement.GetProperty("code").GetString());
+    }
+
+    /// <summary>
+    /// Verifies organization updates return the public conflict payload when a duplicate slug is requested.
+    /// </summary>
+    [Fact]
+    public async Task UpdateOrganizationEndpoint_WithDuplicateSlug_ReturnsConflict()
+    {
+        await using (var migrationContext = CreateDbContext())
+        {
+            await migrationContext.Database.MigrateAsync();
+        }
+
+        var ownerUserId = Guid.NewGuid();
+        var firstOrganizationId = Guid.NewGuid();
+        var secondOrganizationId = Guid.NewGuid();
+
+        await using (var seedContext = CreateDbContext())
+        {
+            seedContext.Users.Add(new AppUser
+            {
+                Id = ownerUserId,
+                KeycloakSubject = "owner-123",
+                DisplayName = "Owner User",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            seedContext.Organizations.AddRange(
+                new Organization
+                {
+                    Id = firstOrganizationId,
+                    Slug = "stellar-forge",
+                    DisplayName = "Stellar Forge",
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                },
+                new Organization
+                {
+                    Id = secondOrganizationId,
+                    Slug = "tabletop-sparks",
+                    DisplayName = "Tabletop Sparks",
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                });
+            seedContext.OrganizationMemberships.Add(new OrganizationMembership
+            {
+                OrganizationId = secondOrganizationId,
+                UserId = ownerUserId,
+                Role = "owner",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+            await seedContext.SaveChangesAsync();
+        }
+
+        using var factory = new RealPostgresApiFactory(
+            _postgresContainer.GetConnectionString(),
+            [
+                new Claim("sub", "owner-123"),
+                new Claim("name", "Owner User"),
+                new Claim(ClaimTypes.Role, "developer")
+            ]);
+        using var client = factory.CreateClient();
+
+        using var response = await client.PutAsJsonAsync(
+            $"/developer/organizations/{secondOrganizationId}",
+            new
+            {
+                slug = "stellar-forge",
+                displayName = "Tabletop Sparks"
+            });
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        Assert.Equal("organization_slug_conflict", document.RootElement.GetProperty("code").GetString());
+    }
+
     private BoardLibraryDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<BoardLibraryDbContext>()
