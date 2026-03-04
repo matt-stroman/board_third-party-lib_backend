@@ -21,9 +21,34 @@ internal sealed class DeveloperEnrollmentRequest
     public string Status { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the linked conversation thread identifier.
+    /// </summary>
+    public Guid ConversationThreadId { get; set; }
+
+    /// <summary>
     /// Gets or sets the UTC timestamp when the request was submitted.
     /// </summary>
     public DateTime RequestedAtUtc { get; set; }
+
+    /// <summary>
+    /// Gets or sets the UTC timestamp when the rejection probation period ends.
+    /// </summary>
+    public DateTime? ReapplyAvailableAtUtc { get; set; }
+
+    /// <summary>
+    /// Gets or sets the UTC timestamp when the request was cancelled.
+    /// </summary>
+    public DateTime? CancelledAtUtc { get; set; }
+
+    /// <summary>
+    /// Gets or sets the UTC timestamp of the latest moderator action on this request.
+    /// </summary>
+    public DateTime? LastModeratorActionAtUtc { get; set; }
+
+    /// <summary>
+    /// Gets or sets the user identifier for the latest moderator action on this request.
+    /// </summary>
+    public Guid? LastModeratorActionByUserId { get; set; }
 
     /// <summary>
     /// Gets or sets the UTC timestamp when the request was reviewed.
@@ -46,9 +71,19 @@ internal sealed class DeveloperEnrollmentRequest
     public DateTime UpdatedAtUtc { get; set; }
 
     /// <summary>
+    /// Gets or sets the linked conversation thread.
+    /// </summary>
+    public ConversationThread ConversationThread { get; set; } = null!;
+
+    /// <summary>
     /// Gets or sets the applicant user projection.
     /// </summary>
     public AppUser User { get; set; } = null!;
+
+    /// <summary>
+    /// Gets or sets the user projection for the latest moderator action when one exists.
+    /// </summary>
+    public AppUser? LastModeratorActionByUser { get; set; }
 
     /// <summary>
     /// Gets or sets the reviewer user projection when one exists.

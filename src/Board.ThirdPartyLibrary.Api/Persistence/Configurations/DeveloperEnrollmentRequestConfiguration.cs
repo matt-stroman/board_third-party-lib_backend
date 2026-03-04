@@ -14,7 +14,7 @@ internal sealed class DeveloperEnrollmentRequestConfiguration : IEntityTypeConfi
             tableBuilder.HasComment("Application-owned developer enrollment workflow state for player accounts.");
             tableBuilder.HasCheckConstraint(
                 "ck_developer_enrollment_requests_status",
-                $"status IN ('{DeveloperEnrollmentStatuses.Pending}', '{DeveloperEnrollmentStatuses.Approved}', '{DeveloperEnrollmentStatuses.Rejected}')");
+                $"status IN ('{DeveloperEnrollmentStatuses.PendingReview}', '{DeveloperEnrollmentStatuses.AwaitingApplicantResponse}', '{DeveloperEnrollmentStatuses.Approved}', '{DeveloperEnrollmentStatuses.Rejected}', '{DeveloperEnrollmentStatuses.Cancelled}')");
         });
 
         builder.HasKey(request => request.Id)
@@ -28,20 +28,35 @@ internal sealed class DeveloperEnrollmentRequestConfiguration : IEntityTypeConfi
             .HasColumnName("user_id")
             .IsRequired();
 
-        builder.HasIndex(request => request.UserId)
-            .IsUnique()
-            .HasDatabaseName("ux_developer_enrollment_requests_user_id");
-
         builder.Property(request => request.Status)
             .HasColumnName("status")
             .HasMaxLength(32)
             .IsRequired()
-            .HasComment("Current workflow status: pending, approved, or rejected.");
+            .HasComment("Current workflow status: pending_review, awaiting_applicant_response, approved, rejected, or cancelled.");
+
+        builder.Property(request => request.ConversationThreadId)
+            .HasColumnName("conversation_thread_id")
+            .IsRequired();
 
         builder.Property(request => request.RequestedAtUtc)
             .HasColumnName("requested_at")
             .HasColumnType("timestamp with time zone")
             .IsRequired();
+
+        builder.Property(request => request.ReapplyAvailableAtUtc)
+            .HasColumnName("reapply_available_at")
+            .HasColumnType("timestamp with time zone");
+
+        builder.Property(request => request.CancelledAtUtc)
+            .HasColumnName("cancelled_at")
+            .HasColumnType("timestamp with time zone");
+
+        builder.Property(request => request.LastModeratorActionAtUtc)
+            .HasColumnName("last_moderator_action_at")
+            .HasColumnType("timestamp with time zone");
+
+        builder.Property(request => request.LastModeratorActionByUserId)
+            .HasColumnName("last_moderator_action_by_user_id");
 
         builder.Property(request => request.ReviewedAtUtc)
             .HasColumnName("reviewed_at")
@@ -60,11 +75,31 @@ internal sealed class DeveloperEnrollmentRequestConfiguration : IEntityTypeConfi
             .HasColumnType("timestamp with time zone")
             .IsRequired();
 
+        builder.HasIndex(request => new { request.UserId, request.RequestedAtUtc })
+            .HasDatabaseName("ix_developer_enrollment_requests_user_requested_at");
+
+        builder.HasIndex(request => request.UserId)
+            .IsUnique()
+            .HasFilter($"status IN ('{DeveloperEnrollmentStatuses.PendingReview}', '{DeveloperEnrollmentStatuses.AwaitingApplicantResponse}')")
+            .HasDatabaseName("ux_developer_enrollment_requests_user_open_request");
+
+        builder.HasOne(request => request.ConversationThread)
+            .WithOne(thread => thread.DeveloperEnrollmentRequest)
+            .HasForeignKey<DeveloperEnrollmentRequest>(request => request.ConversationThreadId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("fk_developer_enrollment_requests_conversation_threads");
+
         builder.HasOne(request => request.User)
-            .WithOne(user => user.DeveloperEnrollmentRequest)
-            .HasForeignKey<DeveloperEnrollmentRequest>(request => request.UserId)
+            .WithMany(user => user.DeveloperEnrollmentRequests)
+            .HasForeignKey(request => request.UserId)
             .OnDelete(DeleteBehavior.Cascade)
             .HasConstraintName("fk_developer_enrollment_requests_users");
+
+        builder.HasOne(request => request.LastModeratorActionByUser)
+            .WithMany(user => user.LastModeratedDeveloperEnrollmentRequests)
+            .HasForeignKey(request => request.LastModeratorActionByUserId)
+            .OnDelete(DeleteBehavior.SetNull)
+            .HasConstraintName("fk_developer_enrollment_requests_last_moderator_users");
 
         builder.HasOne(request => request.ReviewedByUser)
             .WithMany(user => user.ReviewedDeveloperEnrollmentRequests)

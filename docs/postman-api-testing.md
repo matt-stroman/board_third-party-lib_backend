@@ -67,8 +67,9 @@ Separation rule applied:
 
 Important for live local runs:
 
-- the committed local environment uses placeholders for `accessToken`, `organizationId`, `organizationSlug`, `titleId`, and `titleSlug`
+- the committed local environment uses placeholders for `accessToken`, `moderatorAccessToken`, `developerEnrollmentRequestId`, `developerEnrollmentAttachmentId`, `notificationId`, `organizationId`, `organizationSlug`, `titleId`, and `titleSlug`
 - authenticated success-path requests are skipped until those placeholders are replaced with real local values
+- developer-enrollment conversation, attachment, and notification requests reuse those placeholders rather than hardcoding local IDs into the collection
 - Wave 4 and Wave 5 developer requests reuse the same `titleId`, `organizationId`, and auth placeholders; no extra environment variables are required for media, release, artifact, supported-publisher, connection, or acquisition-binding requests
 - this is expected and prevents false failures when developers only want public or unauthenticated smoke coverage
 
