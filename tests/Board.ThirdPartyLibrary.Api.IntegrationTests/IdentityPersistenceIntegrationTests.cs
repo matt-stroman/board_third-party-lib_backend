@@ -168,7 +168,7 @@ public sealed class IdentityPersistenceIntegrationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         using var document = JsonDocument.Parse(payload);
-        Assert.Equal("pending", document.RootElement.GetProperty("developerEnrollment").GetProperty("status").GetString());
+        Assert.Equal("pending_review", document.RootElement.GetProperty("developerEnrollment").GetProperty("status").GetString());
         Assert.False(document.RootElement.GetProperty("developerEnrollment").GetProperty("developerAccessEnabled").GetBoolean());
 
         await using var dbContext = CreateDbContext();
@@ -204,12 +204,22 @@ public sealed class IdentityPersistenceIntegrationTests : IAsyncLifetime
                 UpdatedAtUtc = DateTime.UtcNow
             };
 
+            var thread = new ConversationThread
+            {
+                Id = Guid.NewGuid(),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            };
+
             seedContext.Users.Add(applicant);
+            seedContext.ConversationThreads.Add(thread);
             seedContext.DeveloperEnrollmentRequests.Add(new DeveloperEnrollmentRequest
             {
                 Id = Guid.Parse("2c54f9bb-1fdf-48e5-8cf0-a8b77f6174af"),
                 UserId = applicant.Id,
                 Status = DeveloperEnrollmentStatuses.Pending,
+                ConversationThreadId = thread.Id,
+                ConversationThread = thread,
                 RequestedAtUtc = DateTime.UtcNow.AddMinutes(-5),
                 CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
                 UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
@@ -248,6 +258,178 @@ public sealed class IdentityPersistenceIntegrationTests : IAsyncLifetime
         Assert.Equal(DeveloperEnrollmentStatuses.Approved, request.Status);
         Assert.NotNull(request.ReviewedByUserId);
         Assert.NotNull(request.ReviewedAtUtc);
+    }
+
+    /// <summary>
+    /// Verifies the information-request workflow persists conversation messages, attachments, and notifications in PostgreSQL.
+    /// </summary>
+    [Fact]
+    public async Task DeveloperEnrollmentInformationRequestWorkflow_WithRealPostgres_PersistsConversationAndNotifications()
+    {
+        await using (var migrationContext = CreateDbContext())
+        {
+            await migrationContext.Database.MigrateAsync();
+        }
+
+        var requestId = Guid.Parse("2c54f9bb-1fdf-48e5-8cf0-a8b77f6174af");
+
+        using (var seedContext = CreateDbContext())
+        {
+            var applicant = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "player-123",
+                DisplayName = "Player One",
+                Email = "player@boardtpl.local",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+            var thread = new ConversationThread
+            {
+                Id = Guid.NewGuid(),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            };
+
+            seedContext.Users.Add(applicant);
+            seedContext.ConversationThreads.Add(thread);
+            seedContext.DeveloperEnrollmentRequests.Add(new DeveloperEnrollmentRequest
+            {
+                Id = requestId,
+                UserId = applicant.Id,
+                Status = DeveloperEnrollmentStatuses.Pending,
+                ConversationThreadId = thread.Id,
+                ConversationThread = thread,
+                RequestedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            });
+            await seedContext.SaveChangesAsync();
+        }
+
+        using (var moderatorFactory = new RealPostgresApiFactory(
+            _postgresContainer.GetConnectionString(),
+            [
+                new Claim("sub", "moderator-123"),
+                new Claim("name", "Moderator User"),
+                new Claim(ClaimTypes.Role, "moderator")
+            ]))
+        using (var moderatorClient = moderatorFactory.CreateClient())
+        {
+            var moderatorAttachment = new ByteArrayContent("notes"u8.ToArray());
+            moderatorAttachment.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/plain");
+            using var requestMoreInfoContent = new MultipartFormDataContent
+            {
+                { new StringContent("Please attach release notes and portfolio links."), "Message" },
+                { moderatorAttachment, "Attachments", "release-notes.txt" }
+            };
+
+            using var response = await moderatorClient.PostAsync(
+                $"/moderation/developer-enrollment-requests/{requestId}/request-more-information",
+                requestMoreInfoContent);
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        using (var applicantFactory = new RealPostgresApiFactory(
+            _postgresContainer.GetConnectionString(),
+            [
+                new Claim("sub", "player-123"),
+                new Claim("name", "Player One"),
+                new Claim(ClaimTypes.Role, "player")
+            ]))
+        using (var applicantClient = applicantFactory.CreateClient())
+        {
+            var applicantAttachment = new ByteArrayContent("reply"u8.ToArray());
+            applicantAttachment.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/plain");
+            using var replyContent = new MultipartFormDataContent
+            {
+                { new StringContent("Attached are the release notes and links."), "Message" },
+                { applicantAttachment, "Attachments", "reply.txt" }
+            };
+
+            using var response = await applicantClient.PostAsync(
+                $"/identity/me/developer-enrollment/{requestId}/messages",
+                replyContent);
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        await using var dbContext = CreateDbContext();
+        var request = await dbContext.DeveloperEnrollmentRequests
+            .Include(candidate => candidate.ConversationThread)
+            .ThenInclude(thread => thread.Messages)
+            .ThenInclude(message => message.Attachments)
+            .Include(candidate => candidate.User)
+            .SingleAsync(candidate => candidate.Id == requestId);
+
+        Assert.Equal(DeveloperEnrollmentStatuses.Pending, request.Status);
+        Assert.Equal(2, request.ConversationThread.Messages.Count);
+        Assert.Equal(2, request.ConversationThread.Messages.SelectMany(candidate => candidate.Attachments).Count());
+
+        var applicantUser = await dbContext.Users.SingleAsync(candidate => candidate.KeycloakSubject == "player-123");
+        var moderatorUser = await dbContext.Users.SingleAsync(candidate => candidate.KeycloakSubject == "moderator-123");
+        var applicantNotifications = await dbContext.UserNotifications.CountAsync(candidate => candidate.UserId == applicantUser.Id);
+        var moderatorNotifications = await dbContext.UserNotifications.CountAsync(candidate => candidate.UserId == moderatorUser.Id);
+
+        Assert.Equal(1, applicantNotifications);
+        Assert.Equal(1, moderatorNotifications);
+    }
+
+    /// <summary>
+    /// Verifies marking a notification read persists read state in PostgreSQL.
+    /// </summary>
+    [Fact]
+    public async Task MarkNotificationReadEndpoint_WithRealPostgres_PersistsReadState()
+    {
+        await using (var migrationContext = CreateDbContext())
+        {
+            await migrationContext.Database.MigrateAsync();
+        }
+
+        var notificationId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+
+        using (var seedContext = CreateDbContext())
+        {
+            var user = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "player-123",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+
+            seedContext.Users.Add(user);
+            seedContext.UserNotifications.Add(new UserNotification
+            {
+                Id = notificationId,
+                UserId = user.Id,
+                Category = NotificationCategories.DeveloperEnrollment,
+                Title = "Unread notification",
+                Body = "Still unread.",
+                IsRead = false,
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            });
+            await seedContext.SaveChangesAsync();
+        }
+
+        using var factory = new RealPostgresApiFactory(
+            _postgresContainer.GetConnectionString(),
+            [
+                new Claim("sub", "player-123"),
+                new Claim(ClaimTypes.Role, "player")
+            ]);
+        using var client = factory.CreateClient();
+
+        using var response = await client.PostAsync($"/identity/me/notifications/{notificationId}/read", null);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        await using var dbContext = CreateDbContext();
+        var persisted = await dbContext.UserNotifications.SingleAsync(candidate => candidate.Id == notificationId);
+        Assert.True(persisted.IsRead);
+        Assert.NotNull(persisted.ReadAtUtc);
     }
 
     /// <summary>

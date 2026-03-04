@@ -276,12 +276,22 @@ public sealed class OrganizationEndpointTests
                 UpdatedAtUtc = DateTime.UtcNow
             };
 
+            var thread = new ConversationThread
+            {
+                Id = Guid.NewGuid(),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-10),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            };
+
             dbContext.Users.Add(user);
+            dbContext.ConversationThreads.Add(thread);
             dbContext.DeveloperEnrollmentRequests.Add(new DeveloperEnrollmentRequest
             {
                 Id = Guid.NewGuid(),
                 UserId = user.Id,
                 Status = DeveloperEnrollmentStatuses.Approved,
+                ConversationThreadId = thread.Id,
+                ConversationThread = thread,
                 RequestedAtUtc = DateTime.UtcNow.AddMinutes(-10),
                 ReviewedAtUtc = DateTime.UtcNow.AddMinutes(-5),
                 CreatedAtUtc = DateTime.UtcNow.AddMinutes(-10),

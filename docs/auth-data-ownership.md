@@ -56,7 +56,7 @@ PostgreSQL remains the source of truth for application-owned domain data, includ
 - payment, entitlement, and install-delivery data when those areas are implemented
 - optional Board profile linkage/cache owned by this application
 - an application user projection for linking domain records to a Keycloak subject
-- developer enrollment request status and moderation audit fields used by the application workflow
+- developer enrollment request history, moderation audit fields, conversation threads/messages/attachments, probation timing, and in-app notifications used by the application workflow
 
 Board profile persistence is implemented application data and is now part of the current API surface.
 

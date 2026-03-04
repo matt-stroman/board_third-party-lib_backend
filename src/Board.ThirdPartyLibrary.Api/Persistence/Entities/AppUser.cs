@@ -51,9 +51,9 @@ internal sealed class AppUser
     public UserBoardProfile? BoardProfile { get; set; }
 
     /// <summary>
-    /// Gets or sets the optional developer enrollment request for this user.
+    /// Gets or sets the developer enrollment requests for this user.
     /// </summary>
-    public DeveloperEnrollmentRequest? DeveloperEnrollmentRequest { get; set; }
+    public ICollection<DeveloperEnrollmentRequest> DeveloperEnrollmentRequests { get; set; } = [];
 
     /// <summary>
     /// Gets or sets the organization memberships for this user projection.
@@ -64,4 +64,19 @@ internal sealed class AppUser
     /// Gets or sets developer enrollment requests this user has reviewed.
     /// </summary>
     public ICollection<DeveloperEnrollmentRequest> ReviewedDeveloperEnrollmentRequests { get; set; } = [];
+
+    /// <summary>
+    /// Gets or sets developer enrollment requests whose most recent moderator action was performed by this user.
+    /// </summary>
+    public ICollection<DeveloperEnrollmentRequest> LastModeratedDeveloperEnrollmentRequests { get; set; } = [];
+
+    /// <summary>
+    /// Gets or sets conversation messages authored by this user.
+    /// </summary>
+    public ICollection<ConversationMessage> ConversationMessages { get; set; } = [];
+
+    /// <summary>
+    /// Gets or sets in-app notifications targeted to this user.
+    /// </summary>
+    public ICollection<UserNotification> Notifications { get; set; } = [];
 }

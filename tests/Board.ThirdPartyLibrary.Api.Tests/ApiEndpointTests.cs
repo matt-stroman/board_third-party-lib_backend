@@ -584,7 +584,7 @@ public sealed class ApiEndpointTests
 
         using var document = JsonDocument.Parse(payload);
         var enrollment = document.RootElement.GetProperty("developerEnrollment");
-        Assert.Equal("pending", enrollment.GetProperty("status").GetString());
+        Assert.Equal("pending_review", enrollment.GetProperty("status").GetString());
         Assert.False(enrollment.GetProperty("developerAccessEnabled").GetBoolean());
         Assert.False(enrollment.GetProperty("canSubmitRequest").GetBoolean());
 
@@ -625,13 +625,24 @@ public sealed class ApiEndpointTests
             };
 
             dbContext.Users.Add(user);
+            var thread = new ConversationThread
+            {
+                Id = Guid.NewGuid(),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-10),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            };
+
+            dbContext.ConversationThreads.Add(thread);
             dbContext.DeveloperEnrollmentRequests.Add(new DeveloperEnrollmentRequest
             {
                 Id = Guid.NewGuid(),
                 UserId = user.Id,
                 Status = DeveloperEnrollmentStatuses.Rejected,
+                ConversationThreadId = thread.Id,
+                ConversationThread = thread,
                 RequestedAtUtc = DateTime.UtcNow.AddMinutes(-10),
                 ReviewedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                ReapplyAvailableAtUtc = DateTime.UtcNow.AddDays(30),
                 CreatedAtUtc = DateTime.UtcNow.AddMinutes(-10),
                 UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
             });
@@ -689,11 +700,21 @@ public sealed class ApiEndpointTests
             };
 
             dbContext.Users.AddRange(moderator, applicant);
+            var thread = new ConversationThread
+            {
+                Id = Guid.NewGuid(),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            };
+
+            dbContext.ConversationThreads.Add(thread);
             dbContext.DeveloperEnrollmentRequests.Add(new DeveloperEnrollmentRequest
             {
                 Id = Guid.Parse("2c54f9bb-1fdf-48e5-8cf0-a8b77f6174af"),
                 UserId = applicant.Id,
                 Status = DeveloperEnrollmentStatuses.Pending,
+                ConversationThreadId = thread.Id,
+                ConversationThread = thread,
                 RequestedAtUtc = DateTime.UtcNow.AddMinutes(-5),
                 CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
                 UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
@@ -711,7 +732,7 @@ public sealed class ApiEndpointTests
         var requests = document.RootElement.GetProperty("requests").EnumerateArray().ToList();
         Assert.Single(requests);
         Assert.Equal("player-123", requests[0].GetProperty("applicantSubject").GetString());
-        Assert.Equal("pending", requests[0].GetProperty("status").GetString());
+        Assert.Equal("pending_review", requests[0].GetProperty("status").GetString());
     }
 
     /// <summary>
@@ -784,11 +805,21 @@ public sealed class ApiEndpointTests
             };
 
             dbContext.Users.AddRange(moderator, applicant);
+            var thread = new ConversationThread
+            {
+                Id = Guid.NewGuid(),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            };
+
+            dbContext.ConversationThreads.Add(thread);
             dbContext.DeveloperEnrollmentRequests.Add(new DeveloperEnrollmentRequest
             {
                 Id = requestId,
                 UserId = applicant.Id,
                 Status = DeveloperEnrollmentStatuses.Pending,
+                ConversationThreadId = thread.Id,
+                ConversationThread = thread,
                 RequestedAtUtc = DateTime.UtcNow.AddMinutes(-5),
                 CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
                 UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
@@ -859,11 +890,21 @@ public sealed class ApiEndpointTests
             };
 
             dbContext.Users.AddRange(moderator, applicant);
+            var thread = new ConversationThread
+            {
+                Id = Guid.NewGuid(),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            };
+
+            dbContext.ConversationThreads.Add(thread);
             dbContext.DeveloperEnrollmentRequests.Add(new DeveloperEnrollmentRequest
             {
                 Id = requestId,
                 UserId = applicant.Id,
                 Status = DeveloperEnrollmentStatuses.Pending,
+                ConversationThreadId = thread.Id,
+                ConversationThread = thread,
                 RequestedAtUtc = DateTime.UtcNow.AddMinutes(-5),
                 CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
                 UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
@@ -879,6 +920,880 @@ public sealed class ApiEndpointTests
 
         using var document = JsonDocument.Parse(payload);
         Assert.Equal("keycloak_developer_enrollment_failed", document.RootElement.GetProperty("code").GetString());
+    }
+
+    /// <summary>
+    /// Verifies moderators can request more information on a pending enrollment request.
+    /// </summary>
+    [Fact]
+    public async Task ModeratorRequestMoreInformationEndpoint_WithPendingRequest_ReturnsAwaitingApplicantResponse()
+    {
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "moderator-123"),
+                new Claim("name", "Moderator User"),
+                new Claim(ClaimTypes.Role, "moderator")
+            ]);
+
+        var requestId = Guid.Parse("2c54f9bb-1fdf-48e5-8cf0-a8b77f6174af");
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            var moderator = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "moderator-123",
+                DisplayName = "Moderator User",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+            var applicant = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "player-123",
+                DisplayName = "Player One",
+                Email = "player@boardtpl.local",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+            var thread = new ConversationThread
+            {
+                Id = Guid.NewGuid(),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            };
+
+            dbContext.Users.AddRange(moderator, applicant);
+            dbContext.ConversationThreads.Add(thread);
+            dbContext.DeveloperEnrollmentRequests.Add(new DeveloperEnrollmentRequest
+            {
+                Id = requestId,
+                UserId = applicant.Id,
+                Status = DeveloperEnrollmentStatuses.Pending,
+                ConversationThreadId = thread.Id,
+                ConversationThread = thread,
+                RequestedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var content = new MultipartFormDataContent
+        {
+            { new StringContent("Please share links to prior shipped work."), "message" }
+        };
+
+        using var response = await client.PostAsync($"/moderation/developer-enrollment-requests/{requestId}/request-more-information", content);
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        var request = document.RootElement.GetProperty("developerEnrollmentRequest");
+        Assert.Equal("awaiting_applicant_response", request.GetProperty("status").GetString());
+
+        using var verificationScope = factory.Services.CreateScope();
+        var verificationDbContext = verificationScope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+        var persisted = await verificationDbContext.DeveloperEnrollmentRequests
+            .Include(candidate => candidate.ConversationThread)
+            .ThenInclude(thread => thread.Messages)
+            .SingleAsync(candidate => candidate.Id == requestId);
+
+        Assert.Equal(DeveloperEnrollmentStatuses.AwaitingApplicantResponse, persisted.Status);
+        Assert.Single(persisted.ConversationThread.Messages);
+    }
+
+    /// <summary>
+    /// Verifies applicants can reply after a moderator requests more information.
+    /// </summary>
+    [Fact]
+    public async Task DeveloperEnrollmentReplyEndpoint_WithAwaitingRequest_ReturnsPendingReview()
+    {
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "player-123"),
+                new Claim("name", "Player One"),
+                new Claim(ClaimTypes.Role, "player")
+            ]);
+
+        var requestId = Guid.Parse("2c54f9bb-1fdf-48e5-8cf0-a8b77f6174af");
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            var applicant = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "player-123",
+                DisplayName = "Player One",
+                Email = "player@boardtpl.local",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+            var moderator = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "moderator-123",
+                DisplayName = "Moderator User",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+            var thread = new ConversationThread
+            {
+                Id = Guid.NewGuid(),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-10),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            };
+
+            dbContext.Users.AddRange(applicant, moderator);
+            dbContext.ConversationThreads.Add(thread);
+            dbContext.DeveloperEnrollmentRequests.Add(new DeveloperEnrollmentRequest
+            {
+                Id = requestId,
+                UserId = applicant.Id,
+                Status = DeveloperEnrollmentStatuses.AwaitingApplicantResponse,
+                ConversationThreadId = thread.Id,
+                ConversationThread = thread,
+                RequestedAtUtc = DateTime.UtcNow.AddMinutes(-10),
+                LastModeratorActionByUserId = moderator.Id,
+                LastModeratorActionAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-10),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var content = new MultipartFormDataContent
+        {
+            { new StringContent("Here are the details you asked for."), "message" }
+        };
+
+        using var response = await client.PostAsync($"/identity/me/developer-enrollment/{requestId}/messages", content);
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        var enrollment = document.RootElement.GetProperty("developerEnrollment");
+        Assert.Equal("pending_review", enrollment.GetProperty("status").GetString());
+    }
+
+    /// <summary>
+    /// Verifies applicants can cancel an open enrollment request.
+    /// </summary>
+    [Fact]
+    public async Task DeveloperEnrollmentCancelEndpoint_WithOpenRequest_ReturnsCancelled()
+    {
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "player-123"),
+                new Claim("name", "Player One"),
+                new Claim(ClaimTypes.Role, "player")
+            ]);
+
+        var requestId = Guid.Parse("2c54f9bb-1fdf-48e5-8cf0-a8b77f6174af");
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            var applicant = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "player-123",
+                DisplayName = "Player One",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+            var thread = new ConversationThread
+            {
+                Id = Guid.NewGuid(),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            };
+
+            dbContext.Users.Add(applicant);
+            dbContext.ConversationThreads.Add(thread);
+            dbContext.DeveloperEnrollmentRequests.Add(new DeveloperEnrollmentRequest
+            {
+                Id = requestId,
+                UserId = applicant.Id,
+                Status = DeveloperEnrollmentStatuses.Pending,
+                ConversationThreadId = thread.Id,
+                ConversationThread = thread,
+                RequestedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.PostAsync($"/identity/me/developer-enrollment/{requestId}/cancel", null);
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        var enrollment = document.RootElement.GetProperty("developerEnrollment");
+        Assert.Equal("cancelled", enrollment.GetProperty("status").GetString());
+        Assert.True(enrollment.GetProperty("canSubmitRequest").GetBoolean());
+    }
+
+    /// <summary>
+    /// Verifies moderators can reject pending developer enrollment requests with a probation window.
+    /// </summary>
+    [Fact]
+    public async Task ModeratorRejectEnrollmentEndpoint_WithPendingRequest_ReturnsRejectedAndProbation()
+    {
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "moderator-123"),
+                new Claim("name", "Moderator User"),
+                new Claim(ClaimTypes.Role, "moderator")
+            ]);
+
+        var requestId = Guid.Parse("2c54f9bb-1fdf-48e5-8cf0-a8b77f6174af");
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            var moderator = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "moderator-123",
+                DisplayName = "Moderator User",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+            var applicant = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "player-123",
+                DisplayName = "Player One",
+                Email = "player@boardtpl.local",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+            var thread = new ConversationThread
+            {
+                Id = Guid.NewGuid(),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            };
+
+            dbContext.Users.AddRange(moderator, applicant);
+            dbContext.ConversationThreads.Add(thread);
+            dbContext.DeveloperEnrollmentRequests.Add(new DeveloperEnrollmentRequest
+            {
+                Id = requestId,
+                UserId = applicant.Id,
+                Status = DeveloperEnrollmentStatuses.Pending,
+                ConversationThreadId = thread.Id,
+                ConversationThread = thread,
+                RequestedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var content = new MultipartFormDataContent
+        {
+            { new StringContent("Your prior work samples were not sufficient."), "message" }
+        };
+
+        using var response = await client.PostAsync($"/moderation/developer-enrollment-requests/{requestId}/reject", content);
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        var request = document.RootElement.GetProperty("developerEnrollmentRequest");
+        Assert.Equal("rejected", request.GetProperty("status").GetString());
+        Assert.NotNull(request.GetProperty("reapplyAvailableAt").GetString());
+
+        using var verificationScope = factory.Services.CreateScope();
+        var verificationDbContext = verificationScope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+        var persisted = await verificationDbContext.DeveloperEnrollmentRequests
+            .SingleAsync(candidate => candidate.Id == requestId);
+
+        Assert.Equal(DeveloperEnrollmentStatuses.Rejected, persisted.Status);
+        Assert.NotNull(persisted.ReapplyAvailableAtUtc);
+    }
+
+    /// <summary>
+    /// Verifies moderator rejection requires comments.
+    /// </summary>
+    [Fact]
+    public async Task ModeratorRejectEnrollmentEndpoint_WithoutComments_ReturnsUnprocessableEntity()
+    {
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "moderator-123"),
+                new Claim(ClaimTypes.Role, "moderator")
+            ]);
+
+        var requestId = Guid.Parse("2c54f9bb-1fdf-48e5-8cf0-a8b77f6174af");
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            var moderator = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "moderator-123",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+            var applicant = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "player-123",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+            var thread = new ConversationThread
+            {
+                Id = Guid.NewGuid(),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            };
+
+            dbContext.Users.AddRange(moderator, applicant);
+            dbContext.ConversationThreads.Add(thread);
+            dbContext.DeveloperEnrollmentRequests.Add(new DeveloperEnrollmentRequest
+            {
+                Id = requestId,
+                UserId = applicant.Id,
+                Status = DeveloperEnrollmentStatuses.Pending,
+                ConversationThreadId = thread.Id,
+                ConversationThread = thread,
+                RequestedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var content = new MultipartFormDataContent
+        {
+            { new StringContent("   "), "message" }
+        };
+        using var response = await client.PostAsync($"/moderation/developer-enrollment-requests/{requestId}/reject", content);
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal((HttpStatusCode)StatusCodes.Status422UnprocessableEntity, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        Assert.True(document.RootElement.GetProperty("errors").TryGetProperty("message", out _));
+    }
+
+    /// <summary>
+    /// Verifies applicants can load their own developer enrollment conversation history.
+    /// </summary>
+    [Fact]
+    public async Task DeveloperEnrollmentConversationEndpoint_WithApplicantRequest_ReturnsConversation()
+    {
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "player-123"),
+                new Claim("name", "Player One"),
+                new Claim(ClaimTypes.Role, "player")
+            ]);
+
+        var requestId = Guid.Parse("2c54f9bb-1fdf-48e5-8cf0-a8b77f6174af");
+        var attachmentId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            var applicant = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "player-123",
+                DisplayName = "Player One",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+            var moderator = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "moderator-123",
+                DisplayName = "Moderator User",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+            var thread = new ConversationThread
+            {
+                Id = Guid.NewGuid(),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-10),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            };
+            var message = new ConversationMessage
+            {
+                Id = Guid.NewGuid(),
+                ThreadId = thread.Id,
+                Thread = thread,
+                UserId = moderator.Id,
+                User = moderator,
+                AuthorRole = ConversationAuthorRoles.Moderator,
+                MessageKind = ConversationMessageKinds.ModeratorInformationRequest,
+                Body = "Please send prior release notes.",
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                Attachments =
+                [
+                    new ConversationMessageAttachment
+                    {
+                        Id = attachmentId,
+                        FileName = "checklist.txt",
+                        ContentType = "text/plain",
+                        SizeBytes = 5,
+                        Content = "hello"u8.ToArray(),
+                        CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                        UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+                    }
+                ]
+            };
+
+            thread.Messages.Add(message);
+            dbContext.Users.AddRange(applicant, moderator);
+            dbContext.ConversationThreads.Add(thread);
+            dbContext.DeveloperEnrollmentRequests.Add(new DeveloperEnrollmentRequest
+            {
+                Id = requestId,
+                UserId = applicant.Id,
+                Status = DeveloperEnrollmentStatuses.AwaitingApplicantResponse,
+                ConversationThreadId = thread.Id,
+                ConversationThread = thread,
+                RequestedAtUtc = DateTime.UtcNow.AddMinutes(-10),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-10)
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync($"/identity/me/developer-enrollment/{requestId}/conversation");
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        var conversation = document.RootElement.GetProperty("conversation");
+        var messages = conversation.GetProperty("messages").EnumerateArray().ToList();
+        Assert.Single(messages);
+        Assert.Equal("moderator_information_request", messages[0].GetProperty("messageKind").GetString());
+        var attachments = messages[0].GetProperty("attachments").EnumerateArray().ToList();
+        Assert.Single(attachments);
+        Assert.Equal(attachmentId.ToString(), attachments[0].GetProperty("attachmentId").GetString());
+    }
+
+    /// <summary>
+    /// Verifies moderators can load enrollment conversations.
+    /// </summary>
+    [Fact]
+    public async Task ModeratorEnrollmentConversationEndpoint_WithModeratorRole_ReturnsConversation()
+    {
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "moderator-123"),
+                new Claim("name", "Moderator User"),
+                new Claim(ClaimTypes.Role, "moderator")
+            ]);
+
+        var requestId = Guid.Parse("2c54f9bb-1fdf-48e5-8cf0-a8b77f6174af");
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            var applicant = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "player-123",
+                DisplayName = "Player One",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+            var moderator = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "moderator-123",
+                DisplayName = "Moderator User",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+            var thread = new ConversationThread
+            {
+                Id = Guid.NewGuid(),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-10),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            };
+
+            thread.Messages.Add(new ConversationMessage
+            {
+                Id = Guid.NewGuid(),
+                ThreadId = thread.Id,
+                Thread = thread,
+                UserId = applicant.Id,
+                User = applicant,
+                AuthorRole = ConversationAuthorRoles.Applicant,
+                MessageKind = ConversationMessageKinds.ApplicantReply,
+                Body = "Here are the requested details.",
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-2),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-2)
+            });
+            dbContext.Users.AddRange(applicant, moderator);
+            dbContext.ConversationThreads.Add(thread);
+            dbContext.DeveloperEnrollmentRequests.Add(new DeveloperEnrollmentRequest
+            {
+                Id = requestId,
+                UserId = applicant.Id,
+                Status = DeveloperEnrollmentStatuses.Pending,
+                ConversationThreadId = thread.Id,
+                ConversationThread = thread,
+                RequestedAtUtc = DateTime.UtcNow.AddMinutes(-10),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-2),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-10)
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync($"/moderation/developer-enrollment-requests/{requestId}/conversation");
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        Assert.Equal("pending_review", document.RootElement.GetProperty("conversation").GetProperty("status").GetString());
+    }
+
+    /// <summary>
+    /// Verifies applicants can download their own enrollment attachments.
+    /// </summary>
+    [Fact]
+    public async Task DeveloperEnrollmentAttachmentEndpoint_WithApplicantRequest_ReturnsFile()
+    {
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "player-123"),
+                new Claim(ClaimTypes.Role, "player")
+            ]);
+
+        var requestId = Guid.Parse("2c54f9bb-1fdf-48e5-8cf0-a8b77f6174af");
+        var attachmentId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            var applicant = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "player-123",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+            var moderator = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "moderator-123",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+            var thread = new ConversationThread
+            {
+                Id = Guid.NewGuid(),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            };
+            thread.Messages.Add(new ConversationMessage
+            {
+                Id = Guid.NewGuid(),
+                ThreadId = thread.Id,
+                Thread = thread,
+                UserId = moderator.Id,
+                User = moderator,
+                AuthorRole = ConversationAuthorRoles.Moderator,
+                MessageKind = ConversationMessageKinds.ModeratorInformationRequest,
+                Body = "Attachment included.",
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-4),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-4),
+                Attachments =
+                [
+                    new ConversationMessageAttachment
+                    {
+                        Id = attachmentId,
+                        FileName = "checklist.txt",
+                        ContentType = "text/plain",
+                        SizeBytes = 5,
+                        Content = "hello"u8.ToArray(),
+                        CreatedAtUtc = DateTime.UtcNow.AddMinutes(-4),
+                        UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-4)
+                    }
+                ]
+            });
+
+            dbContext.Users.AddRange(applicant, moderator);
+            dbContext.ConversationThreads.Add(thread);
+            dbContext.DeveloperEnrollmentRequests.Add(new DeveloperEnrollmentRequest
+            {
+                Id = requestId,
+                UserId = applicant.Id,
+                Status = DeveloperEnrollmentStatuses.AwaitingApplicantResponse,
+                ConversationThreadId = thread.Id,
+                ConversationThread = thread,
+                RequestedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-4),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync($"/identity/me/developer-enrollment/{requestId}/attachments/{attachmentId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/plain", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("hello", await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>
+    /// Verifies moderators can download enrollment attachments.
+    /// </summary>
+    [Fact]
+    public async Task ModeratorEnrollmentAttachmentEndpoint_WithModeratorRole_ReturnsFile()
+    {
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "moderator-123"),
+                new Claim(ClaimTypes.Role, "moderator")
+            ]);
+
+        var requestId = Guid.Parse("2c54f9bb-1fdf-48e5-8cf0-a8b77f6174af");
+        var attachmentId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            var applicant = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "player-123",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+            var moderator = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "moderator-123",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+            var thread = new ConversationThread
+            {
+                Id = Guid.NewGuid(),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            };
+            thread.Messages.Add(new ConversationMessage
+            {
+                Id = Guid.NewGuid(),
+                ThreadId = thread.Id,
+                Thread = thread,
+                UserId = applicant.Id,
+                User = applicant,
+                AuthorRole = ConversationAuthorRoles.Applicant,
+                MessageKind = ConversationMessageKinds.ApplicantReply,
+                Body = "Please review this file.",
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-4),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-4),
+                Attachments =
+                [
+                    new ConversationMessageAttachment
+                    {
+                        Id = attachmentId,
+                        FileName = "reply.txt",
+                        ContentType = "text/plain",
+                        SizeBytes = 2,
+                        Content = "ok"u8.ToArray(),
+                        CreatedAtUtc = DateTime.UtcNow.AddMinutes(-4),
+                        UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-4)
+                    }
+                ]
+            });
+
+            dbContext.Users.AddRange(applicant, moderator);
+            dbContext.ConversationThreads.Add(thread);
+            dbContext.DeveloperEnrollmentRequests.Add(new DeveloperEnrollmentRequest
+            {
+                Id = requestId,
+                UserId = applicant.Id,
+                Status = DeveloperEnrollmentStatuses.Pending,
+                ConversationThreadId = thread.Id,
+                ConversationThread = thread,
+                RequestedAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-4),
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync($"/moderation/developer-enrollment-requests/{requestId}/attachments/{attachmentId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/plain", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("ok", await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>
+    /// Verifies authenticated users can list in-app notifications.
+    /// </summary>
+    [Fact]
+    public async Task NotificationsEndpoint_WithAuthenticatedUser_ReturnsNotifications()
+    {
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "player-123"),
+                new Claim("name", "Player One"),
+                new Claim(ClaimTypes.Role, "player")
+            ]);
+
+        var unreadId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        var readId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            var user = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "player-123",
+                DisplayName = "Player One",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+
+            dbContext.Users.Add(user);
+            dbContext.UserNotifications.AddRange(
+                new UserNotification
+                {
+                    Id = readId,
+                    UserId = user.Id,
+                    Category = NotificationCategories.DeveloperEnrollment,
+                    Title = "Older read notification",
+                    Body = "Read already.",
+                    IsRead = true,
+                    ReadAtUtc = DateTime.UtcNow.AddMinutes(-5),
+                    CreatedAtUtc = DateTime.UtcNow.AddMinutes(-10),
+                    UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
+                },
+                new UserNotification
+                {
+                    Id = unreadId,
+                    UserId = user.Id,
+                    Category = NotificationCategories.DeveloperEnrollment,
+                    Title = "Unread notification",
+                    Body = "Still unread.",
+                    IsRead = false,
+                    CreatedAtUtc = DateTime.UtcNow.AddMinutes(-1),
+                    UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-1)
+                });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync("/identity/me/notifications");
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        var notifications = document.RootElement.GetProperty("notifications").EnumerateArray().ToList();
+        Assert.Equal(2, notifications.Count);
+        Assert.Equal(unreadId.ToString(), notifications[0].GetProperty("notificationId").GetString());
+        Assert.False(notifications[0].GetProperty("isRead").GetBoolean());
+    }
+
+    /// <summary>
+    /// Verifies marking a notification read updates the stored notification state.
+    /// </summary>
+    [Fact]
+    public async Task MarkNotificationReadEndpoint_WithExistingNotification_ReturnsReadNotification()
+    {
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "player-123"),
+                new Claim(ClaimTypes.Role, "player")
+            ]);
+
+        var notificationId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+            var user = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "player-123",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            };
+
+            dbContext.Users.Add(user);
+            dbContext.UserNotifications.Add(new UserNotification
+            {
+                Id = notificationId,
+                UserId = user.Id,
+                Category = NotificationCategories.DeveloperEnrollment,
+                Title = "Unread notification",
+                Body = "Still unread.",
+                IsRead = false,
+                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-1),
+                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-1)
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient();
+        using var response = await client.PostAsync($"/identity/me/notifications/{notificationId}/read", null);
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        var notification = document.RootElement.GetProperty("notification");
+        Assert.True(notification.GetProperty("isRead").GetBoolean());
+        Assert.NotNull(notification.GetProperty("readAt").GetString());
     }
 
     /// <summary>
