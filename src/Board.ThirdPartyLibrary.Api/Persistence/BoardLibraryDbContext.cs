@@ -21,31 +21,6 @@ internal sealed class BoardLibraryDbContext(DbContextOptions<BoardLibraryDbConte
     public DbSet<UserBoardProfile> UserBoardProfiles => Set<UserBoardProfile>();
 
     /// <summary>
-    /// Gets application-owned developer enrollment requests.
-    /// </summary>
-    public DbSet<DeveloperEnrollmentRequest> DeveloperEnrollmentRequests => Set<DeveloperEnrollmentRequest>();
-
-    /// <summary>
-    /// Gets persisted generic conversation threads.
-    /// </summary>
-    public DbSet<ConversationThread> ConversationThreads => Set<ConversationThread>();
-
-    /// <summary>
-    /// Gets persisted generic conversation messages.
-    /// </summary>
-    public DbSet<ConversationMessage> ConversationMessages => Set<ConversationMessage>();
-
-    /// <summary>
-    /// Gets persisted binary conversation attachments.
-    /// </summary>
-    public DbSet<ConversationMessageAttachment> ConversationMessageAttachments => Set<ConversationMessageAttachment>();
-
-    /// <summary>
-    /// Gets persisted in-app notifications.
-    /// </summary>
-    public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
-
-    /// <summary>
     /// Gets developer organizations.
     /// </summary>
     public DbSet<Organization> Organizations => Set<Organization>();

@@ -12,6 +12,8 @@ internal static class PlatformRoleCatalog
     [
         new("player", "Player", "platform"),
         new("developer", "Developer", "platform"),
+        new("verified_developer", "VerifiedDeveloper", "platform"),
+        new("super_admin", "SuperAdmin", "platform"),
         new("admin", "Admin", "platform"),
         new("moderator", "Moderator", "platform")
     ];
