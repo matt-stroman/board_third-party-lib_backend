@@ -38,6 +38,7 @@ As of March 2, 2026:
 - the backend now also implements Wave 4 title media assets, releases, and APK artifact metadata
 - the backend now also implements Wave 5 supported publishers and external acquisition bindings
 - the later wave definitions below are planned schema implementation waves, while Waves 1 through 5 are now the implemented baseline
+- future wave numbering is now realigned so product realignment is Waves 6 through 9, unified commerce is Wave 10, and Board-native delivery/install is Wave 11
 
 Important alignment rule:
 
@@ -73,15 +74,18 @@ Implemented now:
 
 Still planned within MVP:
 
-- none beyond the current implemented baseline
+- Wave 6 access and role realignment
+- Wave 7 studio terminology and collaborator permissions refactor
+- Wave 8 title listing/state/verification model realignment
+- Wave 9 title reporting and moderation-action workflows
 
 Deferred beyond the current implemented baseline:
 
 - local projection tables for platform roles unless a concrete reporting/query need appears
-- unified payments / checkout / orders / entitlements
+- unified payments / checkout / orders / entitlements (moved to Wave 10)
 - full taxonomy normalization (genre taxonomy, etc.)
-- advanced moderation workflows
-- Board-native download and install orchestration (pending SDK/API capability)
+- advanced moderation workflows beyond the Wave 9 scope
+- Board-native download and install orchestration (moved to Wave 11; pending SDK/API capability)
 
 ## Implementation Approach (EF Core + PostgreSQL)
 
@@ -216,7 +220,66 @@ Key notes:
 - Public API exposure should remain limited to acquisition metadata appropriate for link-out flows.
 - Status: implemented on March 2, 2026.
 
-### Wave 6: Unified Commerce And Entitlements
+### Wave 6: Access And Role Realignment
+
+Tables likely required:
+
+- no major new relational tables are required if Keycloak remains the source of truth for role assignment
+- optional profile/flag projection columns may be added if required by API query shape
+- legacy developer-enrollment workflow tables become migration/removal candidates
+
+Key notes:
+
+- Replace review-based developer approval workflow with immediate self-service enrollment.
+- Add additive `verified_developer` role behavior managed by moderator and above.
+- Keep Keycloak as role-assignment source of truth; PostgreSQL remains workflow and projection data only.
+
+### Wave 7: Studio Terminology And Collaboration Model
+
+Tables likely required:
+
+- rename `organizations` to `studios`
+- rename `organization_memberships` to `studio_contributors` (or equivalent)
+- rename FK/index/constraint names for studio terminology consistency
+
+Key notes:
+
+- Move API/business terminology from `organization` to `studio`.
+- Enforce owner-only studio CRUD and contributor management.
+- Allow studio contributors to manage titles without allowing studio deletion or contributor changes.
+- Include compatibility mapping for existing organization payloads/routes for one rollout window where feasible.
+
+### Wave 8: Title Listing, State, And Verification Realignment
+
+Tables likely required:
+
+- `titles` changes for listed boolean and updated lifecycle state values
+- release-level verification fields on `title_releases` (or a dedicated verification table if audit detail requires it)
+- moderation metadata fields needed for flagging, verification, and state transition auditability
+
+Key notes:
+
+- Replace multi-value visibility model with listed/unlisted boolean.
+- Adopt lifecycle set: `draft`, `demo`, `early_access`, `published`, `flagged`, `archived`.
+- Auto-unlist titles when transitioned to `flagged`.
+- Tie verification to releases with carry-forward from the previously verified release when appropriate.
+
+### Wave 9: Title Reporting And Moderation Actions
+
+Tables likely required:
+
+- `title_reports`
+- `title_report_attachments`
+- moderation status/audit tables or equivalent fields if needed for queue and workflow tracking
+
+Key notes:
+
+- Add player title reporting with required issue description.
+- Add optional evidence attachments with secure retrieval.
+- Add moderator triage workflow and outcome tracking.
+- Support moderation actions planned by product realignment, including listing suppression and clarification workflows.
+
+### Wave 10: Unified Commerce And Entitlements
 
 Tables likely required:
 
@@ -231,7 +294,7 @@ Key notes:
 - Payment-provider integration belongs here, not in Wave 5.
 - Ownership/entitlement must be modeled before download/install can become first-party behavior.
 
-### Wave 7: Board-Native Delivery And Install
+### Wave 11: Board-Native Delivery And Install
 
 Tables likely required:
 
@@ -241,7 +304,7 @@ Tables likely required:
 Key notes:
 
 - This wave should make download and installation a Board-native flow.
-- Artifact delivery URLs and Board-specific install orchestration belong here, after entitlement rules are defined.
+- Artifact delivery URLs and Board-specific install orchestration belong here, after entitlement and moderation rules are defined.
 - Exact schema shape should wait for better Board SDK/device capability information.
 
 ## Pre-Implementation Research Notes
@@ -384,7 +447,9 @@ Recommended developer workflow (schema changes):
 Planned next backend work items (code-first):
 
 1. Keep Keycloak realm import aligned with the backend platform role catalog and future brokered SSO providers
-2. Define Wave 6 commerce/entitlement boundaries before adding payment-provider-specific fields
-3. Define how Wave 7 Board-native delivery/install should relate to release artifacts before adding artifact URLs
+2. Start Wave 6 by contract-first replacement of review-based developer enrollment with self-service enrollment plus verified-developer management
+3. Define Wave 7 migration strategy for organization-to-studio naming and contributor permission boundaries before schema rename implementation
+4. Define Wave 8 lifecycle/listed/verification invariants before migration and endpoint updates
+5. Define Wave 9 report/attachment moderation workflow boundaries before implementing queue and audit persistence
 
 This plan keeps database schema definition fully reproducible from code while minimizing documentation duplication.
