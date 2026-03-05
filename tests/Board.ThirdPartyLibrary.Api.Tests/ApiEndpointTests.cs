@@ -753,6 +753,46 @@ public sealed class ApiEndpointTests
     }
 
     /// <summary>
+    /// Verifies stale bearer-role claims are reconciled with Keycloak role mappings for enrollment status reads.
+    /// </summary>
+    [Fact]
+    public async Task DeveloperEnrollmentStatusEndpoint_WithStaleClaimsAndAssignedDeveloperRole_ReturnsEnrolled()
+    {
+        var roleClient = new StubKeycloakUserRoleClient(
+            roleCheckResolver: roleName => string.Equals(roleName, "developer", StringComparison.OrdinalIgnoreCase)
+                ? KeycloakUserRoleCheckResult.Success(isAssigned: true)
+                : KeycloakUserRoleCheckResult.Success(isAssigned: false));
+
+        using var factory = new TestApiFactory(
+            configureServices: services =>
+            {
+                services.RemoveAll<IKeycloakUserRoleClient>();
+                services.AddSingleton<IKeycloakUserRoleClient>(roleClient);
+            },
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "user-123"),
+                new Claim("name", "Player One"),
+                new Claim(ClaimTypes.Role, "player")
+            ]);
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/identity/me/developer-enrollment");
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        var enrollment = document.RootElement.GetProperty("developerEnrollment");
+        Assert.Equal("enrolled", enrollment.GetProperty("status").GetString());
+        Assert.True(enrollment.GetProperty("developerAccessEnabled").GetBoolean());
+        Assert.False(enrollment.GetProperty("verifiedDeveloper").GetBoolean());
+        Assert.False(enrollment.GetProperty("canSubmitRequest").GetBoolean());
+        Assert.Equal(2, roleClient.RoleCheckCallCount);
+    }
+
+    /// <summary>
     /// Verifies callers who already have developer access receive an enrolled response without role reassignment.
     /// </summary>
     [Fact]
@@ -1319,15 +1359,18 @@ public sealed class ApiEndpointTests
         private readonly KeycloakUserRoleMutationResult _assignResult;
         private readonly KeycloakUserRoleMutationResult _removeResult;
         private readonly KeycloakUserRoleCheckResult _roleCheckResult;
+        private readonly Func<string, KeycloakUserRoleCheckResult>? _roleCheckResolver;
 
         public StubKeycloakUserRoleClient(
             KeycloakUserRoleMutationResult? assignResult = null,
             KeycloakUserRoleMutationResult? removeResult = null,
-            KeycloakUserRoleCheckResult? roleCheckResult = null)
+            KeycloakUserRoleCheckResult? roleCheckResult = null,
+            Func<string, KeycloakUserRoleCheckResult>? roleCheckResolver = null)
         {
             _assignResult = assignResult ?? KeycloakUserRoleMutationResult.Success(alreadyInRequestedState: false);
             _removeResult = removeResult ?? KeycloakUserRoleMutationResult.Success(alreadyInRequestedState: false);
             _roleCheckResult = roleCheckResult ?? KeycloakUserRoleCheckResult.Success(isAssigned: false);
+            _roleCheckResolver = roleCheckResolver;
         }
 
         public int AssignCallCount { get; private set; }
@@ -1363,7 +1406,7 @@ public sealed class ApiEndpointTests
             CancellationToken cancellationToken = default)
         {
             RoleCheckCallCount++;
-            return Task.FromResult(_roleCheckResult);
+            return Task.FromResult(_roleCheckResolver?.Invoke(roleName) ?? _roleCheckResult);
         }
     }
 

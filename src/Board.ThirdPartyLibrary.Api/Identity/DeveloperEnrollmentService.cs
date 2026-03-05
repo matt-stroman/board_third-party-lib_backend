@@ -23,6 +23,22 @@ internal sealed class DeveloperEnrollmentService(
         await identityPersistenceService.EnsureCurrentUserProjectionAsync(claims, cancellationToken);
         var hasDeveloperAccess = HasDeveloperRole(claims);
         var hasVerifiedDeveloperRole = hasDeveloperAccess && HasRole(claims, VerifiedDeveloperRoleName);
+
+        if (!hasDeveloperAccess)
+        {
+            var subject = GetRequiredSubject(claims);
+            var developerRoleCheck = await keycloakUserRoleClient.IsRealmRoleAssignedAsync(subject, DeveloperRoleName, cancellationToken);
+            if (developerRoleCheck.Succeeded && developerRoleCheck.IsAssigned)
+            {
+                hasDeveloperAccess = true;
+                var verifiedRoleCheck = await keycloakUserRoleClient.IsRealmRoleAssignedAsync(subject, VerifiedDeveloperRoleName, cancellationToken);
+                if (verifiedRoleCheck.Succeeded)
+                {
+                    hasVerifiedDeveloperRole = verifiedRoleCheck.IsAssigned;
+                }
+            }
+        }
+
         return CreateEnrollmentStateSnapshot(hasDeveloperAccess, hasVerifiedDeveloperRole);
     }
 
