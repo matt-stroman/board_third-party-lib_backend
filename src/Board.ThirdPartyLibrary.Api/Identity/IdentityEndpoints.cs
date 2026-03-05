@@ -298,125 +298,15 @@ internal static class IdentityEndpoints
             IDeveloperEnrollmentService developerEnrollmentService,
             CancellationToken cancellationToken) =>
         {
-            var enrollment = await developerEnrollmentService.SubmitEnrollmentAsync(user.Claims, cancellationToken);
-            return Results.Ok(new DeveloperEnrollmentResponse(MapDeveloperEnrollment(enrollment)));
-        });
-
-        group.MapPost("/me/developer-enrollment/{requestId:guid}/cancel", [Authorize] async (
-            ClaimsPrincipal user,
-            Guid requestId,
-            IDeveloperEnrollmentService developerEnrollmentService,
-            CancellationToken cancellationToken) =>
-        {
-            var result = await developerEnrollmentService.CancelEnrollmentAsync(user.Claims, requestId, cancellationToken);
+            var result = await developerEnrollmentService.SubmitEnrollmentAsync(user.Claims, cancellationToken);
             return result.Status switch
             {
                 DeveloperEnrollmentMutationStatus.Success => Results.Ok(new DeveloperEnrollmentResponse(MapDeveloperEnrollment(result.Enrollment!))),
-                DeveloperEnrollmentMutationStatus.NotFound => Results.NotFound(),
-                DeveloperEnrollmentMutationStatus.Conflict => CreateProblemResult(
-                    StatusCodes.Status409Conflict,
-                    "Developer enrollment cancellation conflict.",
-                    "Only open developer enrollment requests can be cancelled.",
-                    "developer_enrollment_cancellation_conflict"),
-                _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
-            };
-        });
-
-        group.MapGet("/me/developer-enrollment/{requestId:guid}/conversation", [Authorize] async (
-            ClaimsPrincipal user,
-            Guid requestId,
-            IDeveloperEnrollmentService developerEnrollmentService,
-            CancellationToken cancellationToken) =>
-        {
-            var result = await developerEnrollmentService.GetCurrentEnrollmentConversationAsync(user.Claims, requestId, cancellationToken);
-            return result.Status switch
-            {
-                DeveloperEnrollmentConversationStatus.Success => Results.Ok(new DeveloperEnrollmentConversationResponse(MapConversation(result.Conversation!))),
-                DeveloperEnrollmentConversationStatus.NotFound => Results.NotFound(),
-                _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
-            };
-        });
-
-        group.MapPost("/me/developer-enrollment/{requestId:guid}/messages", [Authorize] async (
-            ClaimsPrincipal user,
-            Guid requestId,
-            [FromForm] ConversationMessageForm request,
-            HttpRequest httpRequest,
-            IDeveloperEnrollmentService developerEnrollmentService,
-            CancellationToken cancellationToken) =>
-        {
-            var form = await httpRequest.ReadFormAsync(cancellationToken);
-            var (attachments, attachmentErrors) = await DeveloperEnrollmentAttachmentReader.ReadAsync(form.Files, cancellationToken);
-            if (attachmentErrors.Count > 0)
-            {
-                return Results.ValidationProblem(attachmentErrors, statusCode: StatusCodes.Status422UnprocessableEntity);
-            }
-
-            var result = await developerEnrollmentService.ReplyToEnrollmentAsync(
-                user.Claims,
-                requestId,
-                request.Message,
-                attachments,
-                cancellationToken);
-
-            return result.Status switch
-            {
-                DeveloperEnrollmentMutationStatus.Success => Results.Ok(new DeveloperEnrollmentResponse(MapDeveloperEnrollment(result.Enrollment!))),
-                DeveloperEnrollmentMutationStatus.NotFound => Results.NotFound(),
-                DeveloperEnrollmentMutationStatus.Conflict => CreateProblemResult(
-                    StatusCodes.Status409Conflict,
-                    "Developer enrollment reply conflict.",
-                    "The current request is not waiting for an applicant reply.",
-                    "developer_enrollment_reply_conflict"),
-                DeveloperEnrollmentMutationStatus.Validation => Results.ValidationProblem(
-                    new Dictionary<string, string[]>(StringComparer.Ordinal)
-                    {
-                        ["message"] = ["A message body or at least one attachment is required."]
-                    },
-                    statusCode: StatusCodes.Status422UnprocessableEntity),
-                _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
-            };
-        }).DisableAntiforgery();
-
-        group.MapGet("/me/developer-enrollment/{requestId:guid}/attachments/{attachmentId:guid}", [Authorize] async (
-            ClaimsPrincipal user,
-            Guid requestId,
-            Guid attachmentId,
-            IDeveloperEnrollmentService developerEnrollmentService,
-            CancellationToken cancellationToken) =>
-        {
-            var result = await developerEnrollmentService.GetCurrentEnrollmentAttachmentAsync(user.Claims, requestId, attachmentId, cancellationToken);
-            return result.Status switch
-            {
-                DeveloperEnrollmentAttachmentStatus.Success => Results.File(
-                    result.Attachment!.Content,
-                    result.Attachment.ContentType,
-                    result.Attachment.FileName),
-                DeveloperEnrollmentAttachmentStatus.NotFound => Results.NotFound(),
-                _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
-            };
-        });
-
-        group.MapGet("/me/notifications", [Authorize] async (
-            ClaimsPrincipal user,
-            IDeveloperEnrollmentService developerEnrollmentService,
-            CancellationToken cancellationToken) =>
-        {
-            var notifications = await developerEnrollmentService.ListNotificationsAsync(user.Claims, cancellationToken);
-            return Results.Ok(new NotificationListResponse(notifications.Notifications.Select(MapNotification).ToArray()));
-        });
-
-        group.MapPost("/me/notifications/{notificationId:guid}/read", [Authorize] async (
-            ClaimsPrincipal user,
-            Guid notificationId,
-            IDeveloperEnrollmentService developerEnrollmentService,
-            CancellationToken cancellationToken) =>
-        {
-            var result = await developerEnrollmentService.MarkNotificationReadAsync(user.Claims, notificationId, cancellationToken);
-            return result.Status switch
-            {
-                NotificationMutationStatus.Success => Results.Ok(new NotificationResponse(MapNotification(result.Notification!))),
-                NotificationMutationStatus.NotFound => Results.NotFound(),
+                DeveloperEnrollmentMutationStatus.UpstreamFailure => CreateProblemResult(
+                    StatusCodes.Status502BadGateway,
+                    "Developer enrollment could not be completed.",
+                    result.ErrorDetail ?? "Keycloak role assignment failed for the authenticated user.",
+                    "keycloak_developer_enrollment_failed"),
                 _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
             };
         });
@@ -548,50 +438,11 @@ internal static class IdentityEndpoints
 
     private static DeveloperEnrollment MapDeveloperEnrollment(DeveloperEnrollmentStateSnapshot snapshot) =>
         new(
-            snapshot.RequestId,
             snapshot.Status,
             snapshot.ActionRequiredBy,
             snapshot.DeveloperAccessEnabled,
-            snapshot.CanSubmitRequest,
-            snapshot.CanCancelRequest,
-            snapshot.CanReply,
-            snapshot.RequestedAtUtc,
-            snapshot.UpdatedAtUtc,
-            snapshot.ReviewedAtUtc,
-            snapshot.ReapplyAvailableAtUtc,
-            snapshot.ReviewerSubject);
-
-    private static DeveloperEnrollmentConversation MapConversation(DeveloperEnrollmentConversationSnapshot snapshot) =>
-        new(
-            snapshot.RequestId,
-            snapshot.Status,
-            snapshot.ActionRequiredBy,
-            snapshot.ReviewedAtUtc,
-            snapshot.ReviewerSubject,
-            snapshot.Messages.Select(message => new DeveloperEnrollmentConversationMessage(
-                message.MessageId,
-                message.AuthorRole,
-                message.AuthorSubject,
-                message.AuthorDisplayName,
-                message.MessageKind,
-                message.Body,
-                message.CreatedAtUtc,
-                message.Attachments.Select(attachment => new DeveloperEnrollmentConversationAttachment(
-                    attachment.AttachmentId,
-                    attachment.FileName,
-                    attachment.ContentType,
-                    attachment.SizeBytes)).ToArray())).ToArray());
-
-    private static UserNotificationDto MapNotification(NotificationSnapshot snapshot) =>
-        new(
-            snapshot.NotificationId,
-            snapshot.Category,
-            snapshot.Title,
-            snapshot.Body,
-            snapshot.ActionUrl,
-            snapshot.IsRead,
-            snapshot.CreatedAtUtc,
-            snapshot.ReadAtUtc);
+            snapshot.VerifiedDeveloper,
+            snapshot.CanSubmitRequest);
 
     private static UserProfileDto MapUserProfile(UserProfileSnapshot snapshot) =>
         new(
@@ -742,84 +593,23 @@ internal sealed class UploadAvatarForm
 /// <summary>
 /// Developer-enrollment state for the current user.
 /// </summary>
-/// <param name="RequestId">Application-owned request identifier when one exists.</param>
 /// <param name="Status">Player-facing enrollment status.</param>
 /// <param name="ActionRequiredBy">Which workflow actor currently needs to act.</param>
 /// <param name="DeveloperAccessEnabled">Whether developer access is enabled in Keycloak.</param>
+/// <param name="VerifiedDeveloper">Whether verified developer access is enabled in Keycloak.</param>
 /// <param name="CanSubmitRequest">Whether the caller can still submit a request.</param>
-/// <param name="CanCancelRequest">Whether the caller can cancel the active request.</param>
-/// <param name="CanReply">Whether the caller can reply with more information.</param>
-/// <param name="RequestedAt">UTC timestamp when the request was submitted.</param>
-/// <param name="UpdatedAt">UTC timestamp of the latest workflow activity.</param>
-/// <param name="ReviewedAt">UTC timestamp when the request was reviewed.</param>
-/// <param name="ReapplyAvailableAt">UTC timestamp when the caller may submit a new request again.</param>
-/// <param name="ReviewerSubject">Reviewer Keycloak subject when the request was reviewed.</param>
 internal sealed record DeveloperEnrollment(
-    Guid? RequestId,
     string Status,
     string ActionRequiredBy,
     bool DeveloperAccessEnabled,
-    bool CanSubmitRequest,
-    bool CanCancelRequest,
-    bool CanReply,
-    DateTime? RequestedAt,
-    DateTime? UpdatedAt,
-    DateTime? ReviewedAt,
-    DateTime? ReapplyAvailableAt,
-    string? ReviewerSubject);
+    bool VerifiedDeveloper,
+    bool CanSubmitRequest);
 
 /// <summary>
 /// Response wrapper for developer enrollment.
 /// </summary>
 /// <param name="DeveloperEnrollment">Developer enrollment result.</param>
 internal sealed record DeveloperEnrollmentResponse(DeveloperEnrollment DeveloperEnrollment);
-
-internal sealed record DeveloperEnrollmentConversationAttachment(
-    Guid AttachmentId,
-    string FileName,
-    string ContentType,
-    long SizeBytes);
-
-internal sealed record DeveloperEnrollmentConversationMessage(
-    Guid MessageId,
-    string AuthorRole,
-    string AuthorSubject,
-    string? AuthorDisplayName,
-    string MessageKind,
-    string? Body,
-    DateTime CreatedAt,
-    IReadOnlyList<DeveloperEnrollmentConversationAttachment> Attachments);
-
-internal sealed record DeveloperEnrollmentConversation(
-    Guid RequestId,
-    string Status,
-    string ActionRequiredBy,
-    DateTime? ReviewedAt,
-    string? ReviewerSubject,
-    IReadOnlyList<DeveloperEnrollmentConversationMessage> Messages);
-
-internal sealed record DeveloperEnrollmentConversationResponse(DeveloperEnrollmentConversation Conversation);
-
-internal sealed class ConversationMessageForm
-{
-    public string? Message { get; set; }
-
-    public List<IFormFile> Attachments { get; set; } = [];
-}
-
-internal sealed record UserNotificationDto(
-    Guid NotificationId,
-    string Category,
-    string Title,
-    string Body,
-    string? ActionUrl,
-    bool IsRead,
-    DateTime CreatedAt,
-    DateTime? ReadAt);
-
-internal sealed record NotificationListResponse(IReadOnlyList<UserNotificationDto> Notifications);
-
-internal sealed record NotificationResponse(UserNotificationDto Notification);
 
 /// <summary>
 /// Linked Board profile summary for the current user.

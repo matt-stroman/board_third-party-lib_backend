@@ -3,6 +3,7 @@ using Board.ThirdPartyLibrary.Api.Auth;
 using Board.ThirdPartyLibrary.Api.Persistence;
 using Board.ThirdPartyLibrary.Api.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Board.ThirdPartyLibrary.Api.Identity;
 
@@ -94,8 +95,13 @@ internal interface IIdentityPersistenceService
 /// <summary>
 /// Entity Framework-backed implementation of <see cref="IIdentityPersistenceService" />.
 /// </summary>
-internal sealed class IdentityPersistenceService(BoardLibraryDbContext dbContext) : IIdentityPersistenceService
+internal sealed class IdentityPersistenceService(
+    BoardLibraryDbContext dbContext,
+    IKeycloakUserRoleClient keycloakUserRoleClient,
+    ILogger<IdentityPersistenceService> logger) : IIdentityPersistenceService
 {
+    private const string PlayerRoleName = "player";
+
     /// <inheritdoc />
     public async Task EnsureCurrentUserProjectionAsync(IEnumerable<Claim> claims, CancellationToken cancellationToken = default)
     {
@@ -242,7 +248,8 @@ internal sealed class IdentityPersistenceService(BoardLibraryDbContext dbContext
 
     private async Task<AppUser> EnsureUserAsync(IEnumerable<Claim> claims, CancellationToken cancellationToken)
     {
-        var snapshot = BuildSnapshot(claims);
+        var claimList = claims.ToList();
+        var snapshot = BuildSnapshot(claimList);
         var user = await dbContext.Users
             .SingleOrDefaultAsync(candidate => candidate.KeycloakSubject == snapshot.Subject, cancellationToken);
 
@@ -278,13 +285,36 @@ internal sealed class IdentityPersistenceService(BoardLibraryDbContext dbContext
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        await EnsurePlayerRoleAssignmentAsync(snapshot.Subject, claimList, cancellationToken);
         return user;
     }
 
-    private static UserSnapshot BuildSnapshot(IEnumerable<Claim> claims)
+    private async Task EnsurePlayerRoleAssignmentAsync(
+        string subject,
+        IReadOnlyCollection<Claim> claims,
+        CancellationToken cancellationToken)
     {
-        var claimList = claims.ToList();
-        var subject = ClaimValueResolver.GetSubject(claimList);
+        if (HasRoleClaim(claims, PlayerRoleName))
+        {
+            return;
+        }
+
+        var assignment = await keycloakUserRoleClient.EnsureRealmRoleAssignedAsync(subject, PlayerRoleName, cancellationToken);
+        if (assignment.Succeeded)
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "Could not ensure default player role for subject {Subject}. UserNotFound: {UserNotFound}. Error: {ErrorDetail}",
+            subject,
+            assignment.UserNotFound,
+            assignment.ErrorDetail);
+    }
+
+    private static UserSnapshot BuildSnapshot(IReadOnlyCollection<Claim> claims)
+    {
+        var subject = ClaimValueResolver.GetSubject(claims);
 
         if (string.IsNullOrWhiteSpace(subject))
         {
@@ -293,14 +323,19 @@ internal sealed class IdentityPersistenceService(BoardLibraryDbContext dbContext
 
         return new UserSnapshot(
             Subject: subject,
-            DisplayName: ClaimValueResolver.GetClaimValue(claimList, "name") ?? ClaimValueResolver.GetClaimValue(claimList, "preferred_username"),
-            UserName: ClaimValueResolver.GetClaimValue(claimList, "preferred_username"),
-            FirstName: ClaimValueResolver.GetClaimValue(claimList, "given_name"),
-            LastName: ClaimValueResolver.GetClaimValue(claimList, "family_name"),
-            Email: ClaimValueResolver.GetClaimValue(claimList, "email"),
-            EmailVerified: bool.TryParse(ClaimValueResolver.GetClaimValue(claimList, "email_verified"), out var emailVerified) && emailVerified,
-            IdentityProvider: ClaimValueResolver.GetClaimValue(claimList, "identity_provider") ?? ClaimValueResolver.GetClaimValue(claimList, "idp"));
+            DisplayName: ClaimValueResolver.GetClaimValue(claims, "name") ?? ClaimValueResolver.GetClaimValue(claims, "preferred_username"),
+            UserName: ClaimValueResolver.GetClaimValue(claims, "preferred_username"),
+            FirstName: ClaimValueResolver.GetClaimValue(claims, "given_name"),
+            LastName: ClaimValueResolver.GetClaimValue(claims, "family_name"),
+            Email: ClaimValueResolver.GetClaimValue(claims, "email"),
+            EmailVerified: bool.TryParse(ClaimValueResolver.GetClaimValue(claims, "email_verified"), out var emailVerified) && emailVerified,
+            IdentityProvider: ClaimValueResolver.GetClaimValue(claims, "identity_provider") ?? ClaimValueResolver.GetClaimValue(claims, "idp"));
     }
+
+    private static bool HasRoleClaim(IEnumerable<Claim> claims, string roleName) =>
+        claims.Any(claim =>
+            claim.Type == ClaimTypes.Role &&
+            string.Equals(claim.Value, roleName, StringComparison.OrdinalIgnoreCase));
 
     private static BoardProfileSnapshot MapSnapshot(UserBoardProfile profile) =>
         new(

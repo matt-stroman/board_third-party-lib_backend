@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using Board.ThirdPartyLibrary.Api.Auth;
 using Board.ThirdPartyLibrary.Api.Identity;
 using Board.ThirdPartyLibrary.Api.Persistence;
 using Board.ThirdPartyLibrary.Api.Persistence.Entities;
@@ -248,12 +249,20 @@ public sealed class OrganizationEndpointTests
     }
 
     /// <summary>
-    /// Verifies approved developer enrollment also unlocks organization creation before a refreshed token.
+    /// Verifies organization creation succeeds when Keycloak already shows developer role before token refresh.
     /// </summary>
     [Fact]
-    public async Task CreateOrganizationEndpoint_WithApprovedEnrollment_AllowsCreate()
+    public async Task CreateOrganizationEndpoint_WithKeycloakDeveloperRole_AllowsCreate()
     {
+        var roleClient = new StubKeycloakUserRoleClient(
+            KeycloakUserRoleCheckResult.Success(isAssigned: true));
+
         using var factory = new TestApiFactory(
+            configureServices: services =>
+            {
+                services.RemoveAll<IKeycloakUserRoleClient>();
+                services.AddSingleton<IKeycloakUserRoleClient>(roleClient);
+            },
             useTestAuthentication: true,
             testClaims:
             [
@@ -262,43 +271,6 @@ public sealed class OrganizationEndpointTests
                 new Claim("email", "player@boardtpl.local"),
                 new Claim(ClaimTypes.Role, "player")
             ]);
-
-        using (var scope = factory.Services.CreateScope())
-        {
-            var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
-            var user = new AppUser
-            {
-                Id = Guid.NewGuid(),
-                KeycloakSubject = "user-123",
-                DisplayName = "Player One",
-                Email = "player@boardtpl.local",
-                CreatedAtUtc = DateTime.UtcNow,
-                UpdatedAtUtc = DateTime.UtcNow
-            };
-
-            var thread = new ConversationThread
-            {
-                Id = Guid.NewGuid(),
-                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-10),
-                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
-            };
-
-            dbContext.Users.Add(user);
-            dbContext.ConversationThreads.Add(thread);
-            dbContext.DeveloperEnrollmentRequests.Add(new DeveloperEnrollmentRequest
-            {
-                Id = Guid.NewGuid(),
-                UserId = user.Id,
-                Status = DeveloperEnrollmentStatuses.Approved,
-                ConversationThreadId = thread.Id,
-                ConversationThread = thread,
-                RequestedAtUtc = DateTime.UtcNow.AddMinutes(-10),
-                ReviewedAtUtc = DateTime.UtcNow.AddMinutes(-5),
-                CreatedAtUtc = DateTime.UtcNow.AddMinutes(-10),
-                UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-5)
-            });
-            await dbContext.SaveChangesAsync();
-        }
 
         using var client = factory.CreateClient();
         using var response = await client.PostAsJsonAsync(
@@ -310,6 +282,7 @@ public sealed class OrganizationEndpointTests
             });
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(1, roleClient.RoleCheckCallCount);
     }
 
     /// <summary>
@@ -1405,6 +1378,32 @@ public sealed class OrganizationEndpointTests
             var principal = new ClaimsPrincipal(identity);
             var ticket = new AuthenticationTicket(principal, SchemeName);
             return Task.FromResult(AuthenticateResult.Success(ticket));
+        }
+    }
+
+    private sealed class StubKeycloakUserRoleClient(KeycloakUserRoleCheckResult roleCheckResult) : IKeycloakUserRoleClient
+    {
+        public int RoleCheckCallCount { get; private set; }
+
+        public Task<KeycloakUserRoleMutationResult> EnsureRealmRoleAssignedAsync(
+            string userSubject,
+            string roleName,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(KeycloakUserRoleMutationResult.Success(alreadyInRequestedState: false));
+
+        public Task<KeycloakUserRoleMutationResult> EnsureRealmRoleRemovedAsync(
+            string userSubject,
+            string roleName,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(KeycloakUserRoleMutationResult.Success(alreadyInRequestedState: false));
+
+        public Task<KeycloakUserRoleCheckResult> IsRealmRoleAssignedAsync(
+            string userSubject,
+            string roleName,
+            CancellationToken cancellationToken = default)
+        {
+            RoleCheckCallCount++;
+            return Task.FromResult(roleCheckResult);
         }
     }
 }

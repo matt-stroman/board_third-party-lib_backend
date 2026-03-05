@@ -35,8 +35,31 @@
       {
         "name": "moderator",
         "description": "Moderator role for Board Third Party Library users."
+      },
+      {
+        "name": "default-roles-board-third-party-library",
+        "description": "${role_default-roles}",
+        "composite": true,
+        "composites": {
+          "realm": [
+            "offline_access",
+            "uma_authorization",
+            "player"
+          ],
+          "client": {
+            "account": [
+              "manage-account",
+              "view-profile"
+            ]
+          }
+        }
       }
     ]
+  },
+  "defaultRole": {
+    "name": "default-roles-board-third-party-library",
+    "description": "${role_default-roles}",
+    "composite": true
   },
   "clients": [
     {

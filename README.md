@@ -63,7 +63,8 @@ Notes:
 - Override storage root with `TitleMediaStorage__RootPath` when needed.
 - Authentication data ownership is documented in [`backend/docs/auth-data-ownership.md`](docs/auth-data-ownership.md).
 - Current catalog/title schema behavior is documented in [`backend/docs/title-catalog-schema.md`](docs/title-catalog-schema.md).
-- Local developer enrollment is request-based. Players submit enrollment requests, moderators approve or reject them, and approval uses the backend client's Keycloak service account to grant the `developer` realm role.
+- Local developer enrollment is self-service. Players can enable the `developer` realm role directly, while moderators can grant or revoke `verified_developer` for existing developer accounts.
+- New user registration defaults to the `player` role through Keycloak default roles, and authenticated projection sync now backfills `player` when older accounts are missing it.
 
 Local Keycloak bootstrap defaults:
 

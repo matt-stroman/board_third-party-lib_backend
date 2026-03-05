@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 
 namespace Board.ThirdPartyLibrary.Api.Auth;
@@ -31,65 +32,35 @@ internal sealed class KeycloakUserRoleClient : IKeycloakUserRoleClient
     }
 
     /// <inheritdoc />
-    public async Task<KeycloakUserRoleAssignmentResult> EnsureRealmRoleAssignedAsync(
+    public async Task<KeycloakUserRoleMutationResult> EnsureRealmRoleAssignedAsync(
         string userSubject,
         string roleName,
         CancellationToken cancellationToken = default)
     {
-        var adminToken = await GetAdminAccessTokenAsync(cancellationToken);
-        if (string.IsNullOrWhiteSpace(adminToken))
+        var adminTokenResult = await GetAdminAccessTokenAsync(cancellationToken);
+        if (!adminTokenResult.Succeeded || string.IsNullOrWhiteSpace(adminTokenResult.AccessToken))
         {
-            return KeycloakUserRoleAssignmentResult.Failure("Keycloak admin token could not be acquired.");
+            return KeycloakUserRoleMutationResult.Failure(adminTokenResult.ErrorDetail ?? "Keycloak admin token could not be acquired.");
+        }
+        var adminToken = adminTokenResult.AccessToken;
+
+        var userRoleRead = await GetUserRoleMappingsAsync(userSubject, adminToken, cancellationToken);
+        if (!userRoleRead.Succeeded)
+        {
+            return userRoleRead.UserNotFound
+                ? KeycloakUserRoleMutationResult.NotFound()
+                : KeycloakUserRoleMutationResult.Failure(userRoleRead.ErrorDetail ?? "Keycloak user role mappings could not be read.");
         }
 
-        using var roleMappingsRequest = CreateAdminRequest(
-            HttpMethod.Get,
-            _endpointResolver.GetAdminUserRealmRoleMappingsUri(userSubject),
-            adminToken);
-
-        using var roleMappingsResponse = await _httpClient.SendAsync(roleMappingsRequest, cancellationToken);
-        var roleMappingsPayload = await roleMappingsResponse.Content.ReadAsStringAsync(cancellationToken);
-
-        if (!roleMappingsResponse.IsSuccessStatusCode)
+        if (ContainsRole(userRoleRead.Roles, roleName))
         {
-            return KeycloakUserRoleAssignmentResult.Failure(BuildFailureDetail(
-                roleMappingsResponse.StatusCode,
-                "Keycloak user role mappings could not be read.",
-                roleMappingsPayload));
+            return KeycloakUserRoleMutationResult.Success(alreadyInRequestedState: true);
         }
 
-        using (var document = JsonDocument.Parse(roleMappingsPayload))
+        var roleResolution = await GetRealmRoleRepresentationAsync(roleName, adminToken, cancellationToken);
+        if (!roleResolution.Succeeded)
         {
-            if (document.RootElement.ValueKind == JsonValueKind.Array &&
-                document.RootElement.EnumerateArray().Any(element =>
-                    string.Equals(GetOptionalString(element, "name"), roleName, StringComparison.OrdinalIgnoreCase)))
-            {
-                return KeycloakUserRoleAssignmentResult.Success(alreadyAssigned: true);
-            }
-        }
-
-        using var roleRequest = CreateAdminRequest(
-            HttpMethod.Get,
-            _endpointResolver.GetAdminRealmRoleUri(roleName),
-            adminToken);
-
-        using var roleResponse = await _httpClient.SendAsync(roleRequest, cancellationToken);
-        var rolePayload = await roleResponse.Content.ReadAsStringAsync(cancellationToken);
-
-        if (!roleResponse.IsSuccessStatusCode)
-        {
-            return KeycloakUserRoleAssignmentResult.Failure(BuildFailureDetail(
-                roleResponse.StatusCode,
-                $"Keycloak realm role '{roleName}' could not be resolved.",
-                rolePayload));
-        }
-
-        var roleRepresentation = JsonSerializer.Deserialize<KeycloakRealmRoleRepresentation>(rolePayload, SerializerOptions);
-        if (roleRepresentation is null ||
-            string.IsNullOrWhiteSpace(roleRepresentation.Id) ||
-            string.IsNullOrWhiteSpace(roleRepresentation.Name))
-        {
-            return KeycloakUserRoleAssignmentResult.Failure("Keycloak returned an invalid realm role representation.");
+            return KeycloakUserRoleMutationResult.Failure(roleResolution.ErrorDetail ?? $"Keycloak realm role '{roleName}' could not be resolved.");
         }
 
         using var assignRequest = CreateAdminRequest(
@@ -100,19 +71,108 @@ internal sealed class KeycloakUserRoleClient : IKeycloakUserRoleClient
         assignRequest.Content = JsonContent.Create(
             new[]
             {
-                roleRepresentation
+                roleResolution.Role!
             },
             options: SerializerOptions);
 
         using var assignResponse = await _httpClient.SendAsync(assignRequest, cancellationToken);
         var assignPayload = await assignResponse.Content.ReadAsStringAsync(cancellationToken);
 
-        return assignResponse.IsSuccessStatusCode
-            ? KeycloakUserRoleAssignmentResult.Success(alreadyAssigned: false)
-            : KeycloakUserRoleAssignmentResult.Failure(BuildFailureDetail(
+        if (assignResponse.IsSuccessStatusCode)
+        {
+            return KeycloakUserRoleMutationResult.Success(alreadyInRequestedState: false);
+        }
+
+        return assignResponse.StatusCode == System.Net.HttpStatusCode.NotFound
+            ? KeycloakUserRoleMutationResult.NotFound()
+            : KeycloakUserRoleMutationResult.Failure(BuildFailureDetail(
                 assignResponse.StatusCode,
                 "Keycloak role assignment failed.",
                 assignPayload));
+    }
+
+    /// <inheritdoc />
+    public async Task<KeycloakUserRoleMutationResult> EnsureRealmRoleRemovedAsync(
+        string userSubject,
+        string roleName,
+        CancellationToken cancellationToken = default)
+    {
+        var adminTokenResult = await GetAdminAccessTokenAsync(cancellationToken);
+        if (!adminTokenResult.Succeeded || string.IsNullOrWhiteSpace(adminTokenResult.AccessToken))
+        {
+            return KeycloakUserRoleMutationResult.Failure(adminTokenResult.ErrorDetail ?? "Keycloak admin token could not be acquired.");
+        }
+        var adminToken = adminTokenResult.AccessToken;
+
+        var userRoleRead = await GetUserRoleMappingsAsync(userSubject, adminToken, cancellationToken);
+        if (!userRoleRead.Succeeded)
+        {
+            return userRoleRead.UserNotFound
+                ? KeycloakUserRoleMutationResult.NotFound()
+                : KeycloakUserRoleMutationResult.Failure(userRoleRead.ErrorDetail ?? "Keycloak user role mappings could not be read.");
+        }
+
+        if (!ContainsRole(userRoleRead.Roles, roleName))
+        {
+            return KeycloakUserRoleMutationResult.Success(alreadyInRequestedState: true);
+        }
+
+        var roleResolution = await GetRealmRoleRepresentationAsync(roleName, adminToken, cancellationToken);
+        if (!roleResolution.Succeeded)
+        {
+            return KeycloakUserRoleMutationResult.Failure(roleResolution.ErrorDetail ?? $"Keycloak realm role '{roleName}' could not be resolved.");
+        }
+
+        using var removeRequest = CreateAdminRequest(
+            HttpMethod.Delete,
+            _endpointResolver.GetAdminUserRealmRoleMappingsUri(userSubject),
+            adminToken);
+
+        removeRequest.Content = JsonContent.Create(
+            new[]
+            {
+                roleResolution.Role!
+            },
+            options: SerializerOptions);
+
+        using var removeResponse = await _httpClient.SendAsync(removeRequest, cancellationToken);
+        var removePayload = await removeResponse.Content.ReadAsStringAsync(cancellationToken);
+
+        if (removeResponse.IsSuccessStatusCode)
+        {
+            return KeycloakUserRoleMutationResult.Success(alreadyInRequestedState: false);
+        }
+
+        return removeResponse.StatusCode == System.Net.HttpStatusCode.NotFound
+            ? KeycloakUserRoleMutationResult.NotFound()
+            : KeycloakUserRoleMutationResult.Failure(BuildFailureDetail(
+                removeResponse.StatusCode,
+                "Keycloak role removal failed.",
+                removePayload));
+    }
+
+    /// <inheritdoc />
+    public async Task<KeycloakUserRoleCheckResult> IsRealmRoleAssignedAsync(
+        string userSubject,
+        string roleName,
+        CancellationToken cancellationToken = default)
+    {
+        var adminTokenResult = await GetAdminAccessTokenAsync(cancellationToken);
+        if (!adminTokenResult.Succeeded || string.IsNullOrWhiteSpace(adminTokenResult.AccessToken))
+        {
+            return KeycloakUserRoleCheckResult.Failure(adminTokenResult.ErrorDetail ?? "Keycloak admin token could not be acquired.");
+        }
+        var adminToken = adminTokenResult.AccessToken;
+
+        var userRoleRead = await GetUserRoleMappingsAsync(userSubject, adminToken, cancellationToken);
+        if (!userRoleRead.Succeeded)
+        {
+            return userRoleRead.UserNotFound
+                ? KeycloakUserRoleCheckResult.NotFound()
+                : KeycloakUserRoleCheckResult.Failure(userRoleRead.ErrorDetail ?? "Keycloak user role mappings could not be read.");
+        }
+
+        return KeycloakUserRoleCheckResult.Success(ContainsRole(userRoleRead.Roles, roleName));
     }
 
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
@@ -120,7 +180,67 @@ internal sealed class KeycloakUserRoleClient : IKeycloakUserRoleClient
         PropertyNameCaseInsensitive = true
     };
 
-    private async Task<string?> GetAdminAccessTokenAsync(CancellationToken cancellationToken)
+    private async Task<UserRoleReadResult> GetUserRoleMappingsAsync(string userSubject, string adminToken, CancellationToken cancellationToken)
+    {
+        using var request = CreateAdminRequest(
+            HttpMethod.Get,
+            _endpointResolver.GetAdminUserRealmRoleMappingsUri(userSubject),
+            adminToken);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return response.StatusCode == System.Net.HttpStatusCode.NotFound
+                ? UserRoleReadResult.NotFound()
+                : UserRoleReadResult.Failure(BuildFailureDetail(
+                    response.StatusCode,
+                    "Keycloak user role mappings could not be read.",
+                    payload));
+        }
+
+        try
+        {
+            var roles = JsonSerializer.Deserialize<List<KeycloakRealmRoleRepresentation>>(payload, SerializerOptions) ?? [];
+            return UserRoleReadResult.Success(roles);
+        }
+        catch (JsonException)
+        {
+            return UserRoleReadResult.Failure("Keycloak user role mappings payload was invalid.");
+        }
+    }
+
+    private async Task<RoleResolutionResult> GetRealmRoleRepresentationAsync(string roleName, string adminToken, CancellationToken cancellationToken)
+    {
+        using var request = CreateAdminRequest(
+            HttpMethod.Get,
+            _endpointResolver.GetAdminRealmRoleUri(roleName),
+            adminToken);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return RoleResolutionResult.Failure(BuildFailureDetail(
+                response.StatusCode,
+                $"Keycloak realm role '{roleName}' could not be resolved.",
+                payload));
+        }
+
+        var role = JsonSerializer.Deserialize<KeycloakRealmRoleRepresentation>(payload, SerializerOptions);
+        if (role is null ||
+            string.IsNullOrWhiteSpace(role.Id) ||
+            string.IsNullOrWhiteSpace(role.Name))
+        {
+            return RoleResolutionResult.Failure("Keycloak returned an invalid realm role representation.");
+        }
+
+        return RoleResolutionResult.Success(role);
+    }
+
+    private async Task<AdminAccessTokenResult> GetAdminAccessTokenAsync(CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, _endpointResolver.GetTokenEndpointUri())
         {
@@ -132,16 +252,41 @@ internal sealed class KeycloakUserRoleClient : IKeycloakUserRoleClient
             ])
         };
 
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
-        var payload = await response.Content.ReadAsStringAsync(cancellationToken);
-
-        if (!response.IsSuccessStatusCode)
+        try
         {
-            return null;
-        }
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
+            var payload = await response.Content.ReadAsStringAsync(cancellationToken);
 
-        using var document = JsonDocument.Parse(payload);
-        return GetOptionalString(document.RootElement, "access_token");
+            if (!response.IsSuccessStatusCode)
+            {
+                return AdminAccessTokenResult.Failure(
+                    BuildFailureDetail(
+                        response.StatusCode,
+                        "Keycloak admin token request failed.",
+                        payload));
+            }
+
+            using var document = JsonDocument.Parse(payload);
+            if (!document.RootElement.TryGetProperty("access_token", out var accessTokenElement) ||
+                string.IsNullOrWhiteSpace(accessTokenElement.GetString()))
+            {
+                return AdminAccessTokenResult.Failure("Keycloak admin token response did not include an access token.");
+            }
+
+            return AdminAccessTokenResult.Success(accessTokenElement.GetString()!);
+        }
+        catch (HttpRequestException exception)
+        {
+            return AdminAccessTokenResult.Failure($"Keycloak admin token request could not reach the token endpoint. {exception.Message}");
+        }
+        catch (TaskCanceledException exception)
+        {
+            return AdminAccessTokenResult.Failure($"Keycloak admin token request timed out or was canceled. {exception.Message}");
+        }
+        catch (JsonException)
+        {
+            return AdminAccessTokenResult.Failure("Keycloak admin token response payload was invalid.");
+        }
     }
 
     private static HttpRequestMessage CreateAdminRequest(HttpMethod method, Uri uri, string accessToken)
@@ -161,8 +306,38 @@ internal sealed class KeycloakUserRoleClient : IKeycloakUserRoleClient
         return $"{prefix} Status: {(int)statusCode}.{suffix}";
     }
 
-    private static string? GetOptionalString(JsonElement element, string propertyName) =>
-        element.TryGetProperty(propertyName, out var value) ? value.GetString() : null;
+    private static bool ContainsRole(IEnumerable<KeycloakRealmRoleRepresentation> roles, string roleName) =>
+        roles.Any(candidate => string.Equals(candidate.Name, roleName, StringComparison.OrdinalIgnoreCase));
+
+    private sealed record UserRoleReadResult(bool Succeeded, IReadOnlyList<KeycloakRealmRoleRepresentation> Roles, bool UserNotFound, string? ErrorDetail)
+    {
+        public static UserRoleReadResult Success(IReadOnlyList<KeycloakRealmRoleRepresentation> roles) =>
+            new(true, roles, false, null);
+
+        public static UserRoleReadResult NotFound() =>
+            new(false, [], true, null);
+
+        public static UserRoleReadResult Failure(string errorDetail) =>
+            new(false, [], false, errorDetail);
+    }
+
+    private sealed record RoleResolutionResult(bool Succeeded, KeycloakRealmRoleRepresentation? Role, string? ErrorDetail)
+    {
+        public static RoleResolutionResult Success(KeycloakRealmRoleRepresentation role) =>
+            new(true, role, null);
+
+        public static RoleResolutionResult Failure(string errorDetail) =>
+            new(false, null, errorDetail);
+    }
+
+    private sealed record AdminAccessTokenResult(bool Succeeded, string? AccessToken, string? ErrorDetail)
+    {
+        public static AdminAccessTokenResult Success(string accessToken) =>
+            new(true, accessToken, null);
+
+        public static AdminAccessTokenResult Failure(string errorDetail) =>
+            new(false, null, errorDetail);
+    }
 }
 
 /// <summary>
@@ -170,4 +345,6 @@ internal sealed class KeycloakUserRoleClient : IKeycloakUserRoleClient
 /// </summary>
 /// <param name="Id">Role identifier.</param>
 /// <param name="Name">Role name.</param>
-internal sealed record KeycloakRealmRoleRepresentation(string Id, string Name);
+internal sealed record KeycloakRealmRoleRepresentation(
+    [property: JsonPropertyName("id")] string? Id,
+    [property: JsonPropertyName("name")] string? Name);
