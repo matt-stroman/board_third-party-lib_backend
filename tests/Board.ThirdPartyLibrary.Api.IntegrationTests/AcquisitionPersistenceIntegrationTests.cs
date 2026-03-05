@@ -113,7 +113,21 @@ public sealed class AcquisitionPersistenceIntegrationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Created, createTitleResponse.StatusCode);
 
         using var createTitleDocument = JsonDocument.Parse(createTitlePayload);
+        var createdTitle = createTitleDocument.RootElement.GetProperty("title");
+        Assert.Equal("draft", createdTitle.GetProperty("lifecycleStatus").GetString());
+        Assert.Equal("private", createdTitle.GetProperty("visibility").GetString());
         var titleId = Guid.Parse(createTitleDocument.RootElement.GetProperty("title").GetProperty("id").GetString()!);
+
+        using var publishTitleResponse = await client.PutAsJsonAsync(
+            $"/developer/titles/{titleId}",
+            new
+            {
+                slug = "star-blasters",
+                contentKind = "game",
+                lifecycleStatus = "testing",
+                visibility = "listed"
+            });
+        Assert.Equal(HttpStatusCode.OK, publishTitleResponse.StatusCode);
 
         using var listSupportedPublishersResponse = await client.GetAsync("/supported-publishers");
         var publishersPayload = await listSupportedPublishersResponse.Content.ReadAsStringAsync();
