@@ -81,7 +81,7 @@ public sealed class AcquisitionEndpointTests
         }
 
         using var client = factory.CreateClient();
-        using var response = await client.GetAsync("/catalog?organizationSlug=stellar-forge&contentKind=game");
+        using var response = await client.GetAsync("/catalog?studioSlug=stellar-forge&contentKind=game");
         var payload = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -161,7 +161,7 @@ public sealed class AcquisitionEndpointTests
 
         using var client = factory.CreateClient();
         using var response = await client.PostAsJsonAsync(
-            $"/developer/organizations/{organizationId}/integration-connections",
+            $"/developer/studios/{organizationId}/integration-connections",
             new
             {
                 supportedPublisherId = SupportedPublisherConfiguration.ItchIoId,
@@ -201,7 +201,7 @@ public sealed class AcquisitionEndpointTests
 
         using var client = factory.CreateClient();
         using var response = await client.PostAsJsonAsync(
-            $"/developer/organizations/{Guid.NewGuid()}/integration-connections",
+            $"/developer/studios/{Guid.NewGuid()}/integration-connections",
             new
             {
                 customPublisherDisplayName = "Custom Store",
@@ -241,7 +241,7 @@ public sealed class AcquisitionEndpointTests
 
         using var client = factory.CreateClient();
         using var response = await client.PostAsJsonAsync(
-            $"/developer/organizations/{organizationId}/integration-connections",
+            $"/developer/studios/{organizationId}/integration-connections",
             new
             {
                 supportedPublisherId = SupportedPublisherConfiguration.ItchIoId,
@@ -271,7 +271,7 @@ public sealed class AcquisitionEndpointTests
 
         using var client = factory.CreateClient();
         using var response = await client.PostAsJsonAsync(
-            $"/developer/organizations/{organizationId}/integration-connections",
+            $"/developer/studios/{organizationId}/integration-connections",
             new
             {
                 supportedPublisherId = Guid.NewGuid(),
@@ -295,7 +295,7 @@ public sealed class AcquisitionEndpointTests
         }
 
         using var client = factory.CreateClient();
-        using var response = await client.DeleteAsync($"/developer/organizations/{organizationId}/integration-connections/{connectionId}");
+        using var response = await client.DeleteAsync($"/developer/studios/{organizationId}/integration-connections/{connectionId}");
         var payload = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
@@ -334,7 +334,7 @@ public sealed class AcquisitionEndpointTests
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
 
         using var document = JsonDocument.Parse(payload);
-        Assert.Equal("title_integration_organization_conflict", document.RootElement.GetProperty("code").GetString());
+        Assert.Equal("title_integration_studio_conflict", document.RootElement.GetProperty("code").GetString());
     }
 
     [Fact]
@@ -770,3 +770,4 @@ public sealed class AcquisitionEndpointTests
         }
     }
 }
+

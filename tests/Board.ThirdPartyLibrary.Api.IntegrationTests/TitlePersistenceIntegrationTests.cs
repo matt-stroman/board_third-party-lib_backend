@@ -96,7 +96,7 @@ public sealed class TitlePersistenceIntegrationTests : IAsyncLifetime
         using var client = factory.CreateClient();
 
         using var createResponse = await client.PostAsJsonAsync(
-            $"/developer/organizations/{organizationId}/titles",
+            $"/developer/studios/{organizationId}/titles",
             new
             {
                 slug = "star-blasters",
@@ -470,7 +470,7 @@ public sealed class TitlePersistenceIntegrationTests : IAsyncLifetime
         using var client = factory.CreateClient();
 
         using var firstResponse = await client.PostAsJsonAsync(
-            $"/developer/organizations/{organizationId}/titles",
+            $"/developer/studios/{organizationId}/titles",
             new
             {
                 slug = "star-blasters",
@@ -493,7 +493,7 @@ public sealed class TitlePersistenceIntegrationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
 
         using var secondResponse = await client.PostAsJsonAsync(
-            $"/developer/organizations/{organizationId}/titles",
+            $"/developer/studios/{organizationId}/titles",
             new
             {
                 slug = "star-blasters",
@@ -754,3 +754,4 @@ public sealed class TitlePersistenceIntegrationTests : IAsyncLifetime
         }
     }
 }
+

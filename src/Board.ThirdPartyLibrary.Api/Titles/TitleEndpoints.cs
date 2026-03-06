@@ -21,11 +21,11 @@ internal static partial class TitleEndpoints
     public static IEndpointRouteBuilder MapTitleEndpoints(this IEndpointRouteBuilder app)
     {
         var catalogGroup = app.MapGroup("/catalog");
-        var developerOrganizationGroup = app.MapGroup("/developer/organizations");
+        var developerStudioGroup = app.MapGroup("/developer/studios");
         var developerTitleGroup = app.MapGroup("/developer/titles");
 
         catalogGroup.MapGet("/", async (
-            string? organizationSlug,
+            string? studioSlug,
             string? contentKind,
             string? genre,
             string? sort,
@@ -42,7 +42,7 @@ internal static partial class TitleEndpoints
 
             var result = await titleService.ListPublicTitlesAsync(
                 new PublicCatalogListQuery(
-                    organizationSlug?.Trim().ToLowerInvariant(),
+                    studioSlug?.Trim().ToLowerInvariant(),
                     NormalizeCode(contentKind),
                     genre?.Trim(),
                     NormalizeCode(sort) ?? CatalogSortModes.Title,
@@ -56,14 +56,14 @@ internal static partial class TitleEndpoints
                     MapCatalogPage(result.Paging)));
         });
 
-        catalogGroup.MapGet("/{organizationSlug}/{titleSlug}", async (
-            string organizationSlug,
+        catalogGroup.MapGet("/{studioSlug}/{titleSlug}", async (
+            string studioSlug,
             string titleSlug,
             ITitleService titleService,
             CancellationToken cancellationToken) =>
         {
             var title = await titleService.GetPublicTitleAsync(
-                organizationSlug.Trim().ToLowerInvariant(),
+                studioSlug.Trim().ToLowerInvariant(),
                 titleSlug.Trim().ToLowerInvariant(),
                 cancellationToken);
 
@@ -72,13 +72,13 @@ internal static partial class TitleEndpoints
                 : Results.Ok(new CatalogTitleResponse(MapTitleDetail(title)));
         });
 
-        developerOrganizationGroup.MapGet("/{organizationId:guid}/titles", [Authorize] async (
+        developerStudioGroup.MapGet("/{studioId:guid}/titles", [Authorize] async (
             ClaimsPrincipal user,
-            Guid organizationId,
+            Guid studioId,
             ITitleService titleService,
             CancellationToken cancellationToken) =>
         {
-            var result = await titleService.ListOrganizationTitlesAsync(user.Claims, organizationId, cancellationToken);
+            var result = await titleService.ListOrganizationTitlesAsync(user.Claims, studioId, cancellationToken);
             return result.Status switch
             {
                 TitleListStatus.Success => Results.Ok(new DeveloperTitleListResponse(result.Titles!.Select(MapTitleSummary).ToArray())),
@@ -88,9 +88,9 @@ internal static partial class TitleEndpoints
             };
         });
 
-        developerOrganizationGroup.MapPost("/{organizationId:guid}/titles", [Authorize] async (
+        developerStudioGroup.MapPost("/{studioId:guid}/titles", [Authorize] async (
             ClaimsPrincipal user,
-            Guid organizationId,
+            Guid studioId,
             CreateTitleRequest request,
             ITitleService titleService,
             CancellationToken cancellationToken) =>
@@ -103,7 +103,7 @@ internal static partial class TitleEndpoints
 
             var result = await titleService.CreateTitleAsync(
                 user.Claims,
-                organizationId,
+                studioId,
                 new CreateTitleCommand(
                     NormalizeSlug(request.Slug),
                     NormalizeCode(request.ContentKind)!,
@@ -122,7 +122,7 @@ internal static partial class TitleEndpoints
                 TitleMutationStatus.Conflict => CreateProblemResult(
                     StatusCodes.Status409Conflict,
                     "Title already exists",
-                    "The supplied title slug is already in use within the organization.",
+                    "The supplied title slug is already in use within the studio.",
                     "title_slug_conflict"),
                 _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
             };
@@ -175,7 +175,7 @@ internal static partial class TitleEndpoints
                 TitleMutationStatus.Conflict => CreateProblemResult(
                     StatusCodes.Status409Conflict,
                     "Title already exists",
-                    "The supplied title slug is already in use within the organization.",
+                    "The supplied title slug is already in use within the studio.",
                     "title_slug_conflict"),
                 _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
             };
@@ -561,7 +561,7 @@ internal static partial class TitleEndpoints
 internal interface ITitleRequest
 {
     /// <summary>
-    /// Gets the organization-scoped title route key.
+    /// Gets the studio-scoped title route key.
     /// </summary>
     string Slug { get; }
 
@@ -584,7 +584,7 @@ internal interface ITitleRequest
 /// <summary>
 /// Request payload for creating a title.
 /// </summary>
-/// <param name="Slug">Title route key unique within the organization.</param>
+/// <param name="Slug">Title route key unique within the studio.</param>
 /// <param name="ContentKind">Content kind such as game or app.</param>
 /// <param name="LifecycleStatus">Reserved for forward compatibility; create currently forces draft lifecycle.</param>
 /// <param name="Visibility">Reserved for forward compatibility; create currently forces private visibility.</param>
@@ -599,7 +599,7 @@ internal sealed record CreateTitleRequest(
 /// <summary>
 /// Request payload for updating stable title fields.
 /// </summary>
-/// <param name="Slug">Title route key unique within the organization.</param>
+/// <param name="Slug">Title route key unique within the studio.</param>
 /// <param name="ContentKind">Content kind such as game or app.</param>
 /// <param name="LifecycleStatus">Lifecycle status for the title.</param>
 /// <param name="Visibility">Visibility mode for the title.</param>
@@ -636,9 +636,9 @@ internal sealed record UpsertTitleMetadataRequest(
 /// Public catalog title summary DTO.
 /// </summary>
 /// <param name="Id">Title identifier.</param>
-/// <param name="OrganizationId">Owning organization identifier.</param>
-/// <param name="OrganizationSlug">Owning organization route key.</param>
-/// <param name="Slug">Title route key unique within the organization.</param>
+/// <param name="StudioId">Owning studio identifier.</param>
+/// <param name="StudioSlug">Owning studio route key.</param>
+/// <param name="Slug">Title route key unique within the studio.</param>
 /// <param name="ContentKind">Content kind such as game or app.</param>
 /// <param name="LifecycleStatus">Lifecycle status for the title.</param>
 /// <param name="Visibility">Visibility mode for the title.</param>
@@ -657,8 +657,8 @@ internal sealed record UpsertTitleMetadataRequest(
 /// <param name="AcquisitionUrl">Primary acquisition URL when an active binding exists.</param>
 internal sealed record CatalogTitleSummaryDto(
     Guid Id,
-    Guid OrganizationId,
-    string OrganizationSlug,
+    Guid StudioId,
+    string StudioSlug,
     string Slug,
     string ContentKind,
     string LifecycleStatus,
@@ -681,9 +681,9 @@ internal sealed record CatalogTitleSummaryDto(
 /// Detailed catalog title DTO.
 /// </summary>
 /// <param name="Id">Title identifier.</param>
-/// <param name="OrganizationId">Owning organization identifier.</param>
-/// <param name="OrganizationSlug">Owning organization route key.</param>
-/// <param name="Slug">Title route key unique within the organization.</param>
+/// <param name="StudioId">Owning studio identifier.</param>
+/// <param name="StudioSlug">Owning studio route key.</param>
+/// <param name="Slug">Title route key unique within the studio.</param>
 /// <param name="ContentKind">Content kind such as game or app.</param>
 /// <param name="LifecycleStatus">Lifecycle status for the title.</param>
 /// <param name="Visibility">Visibility mode for the title.</param>
@@ -708,8 +708,8 @@ internal sealed record CatalogTitleSummaryDto(
 /// <param name="UpdatedAt">UTC timestamp when the title was last updated.</param>
 internal sealed record CatalogTitleDto(
     Guid Id,
-    Guid OrganizationId,
-    string OrganizationSlug,
+    Guid StudioId,
+    string StudioSlug,
     string Slug,
     string ContentKind,
     string LifecycleStatus,
@@ -738,9 +738,9 @@ internal sealed record CatalogTitleDto(
 /// Detailed developer title DTO.
 /// </summary>
 /// <param name="Id">Title identifier.</param>
-/// <param name="OrganizationId">Owning organization identifier.</param>
-/// <param name="OrganizationSlug">Owning organization route key.</param>
-/// <param name="Slug">Title route key unique within the organization.</param>
+/// <param name="StudioId">Owning studio identifier.</param>
+/// <param name="StudioSlug">Owning studio route key.</param>
+/// <param name="Slug">Title route key unique within the studio.</param>
 /// <param name="ContentKind">Content kind such as game or app.</param>
 /// <param name="LifecycleStatus">Lifecycle status for the title.</param>
 /// <param name="Visibility">Visibility mode for the title.</param>
@@ -766,8 +766,8 @@ internal sealed record CatalogTitleDto(
 /// <param name="UpdatedAt">UTC timestamp when the title was last updated.</param>
 internal sealed record DeveloperTitleDto(
     Guid Id,
-    Guid OrganizationId,
-    string OrganizationSlug,
+    Guid StudioId,
+    string StudioSlug,
     string Slug,
     string ContentKind,
     string LifecycleStatus,
@@ -900,3 +900,4 @@ internal sealed record TitleMetadataVersionListResponse(IReadOnlyList<TitleMetad
 /// <param name="Detail">Problem description.</param>
 /// <param name="Code">Application-specific error code.</param>
 internal sealed record TitleProblemEnvelope(string? Type, string Title, int Status, string? Detail, string? Code);
+

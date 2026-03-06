@@ -6,21 +6,21 @@ using Microsoft.AspNetCore.Authorization;
 namespace Board.ThirdPartyLibrary.Api.Organizations;
 
 /// <summary>
-/// Maps organization and membership endpoints.
+/// Maps studio and membership endpoints.
 /// </summary>
 internal static partial class OrganizationEndpoints
 {
     private static readonly Regex SlugRegex = SlugPattern();
 
     /// <summary>
-    /// Maps organization endpoints to the application.
+    /// Maps studio endpoints to the application.
     /// </summary>
     /// <param name="app">Route builder.</param>
     /// <returns>The route builder.</returns>
     public static IEndpointRouteBuilder MapOrganizationEndpoints(this IEndpointRouteBuilder app)
     {
-        var publicGroup = app.MapGroup("/organizations");
-        var managementGroup = app.MapGroup("/developer/organizations");
+        var publicGroup = app.MapGroup("/studios");
+        var managementGroup = app.MapGroup("/developer/studios");
 
         publicGroup.MapGet("/", async (
             IOrganizationService organizationService,
@@ -80,13 +80,13 @@ internal static partial class OrganizationEndpoints
             return result.Status switch
             {
                 OrganizationMutationStatus.Success => Results.Created(
-                    $"/organizations/{result.Organization!.Slug}",
+                    $"/studios/{result.Organization!.Slug}",
                     new OrganizationResponse(MapOrganization(result.Organization))),
                 OrganizationMutationStatus.Conflict => CreateProblemResult(
                     StatusCodes.Status409Conflict,
-                    "Organization already exists",
-                    "The supplied organization slug is already in use.",
-                    "organization_slug_conflict"),
+                    "Studio already exists",
+                    "The supplied studio slug is already in use.",
+                    "studio_slug_conflict"),
                 _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
             };
         });
@@ -121,9 +121,9 @@ internal static partial class OrganizationEndpoints
                 OrganizationMutationStatus.Forbidden => Results.Forbid(),
                 OrganizationMutationStatus.Conflict => CreateProblemResult(
                     StatusCodes.Status409Conflict,
-                    "Organization already exists",
-                    "The supplied organization slug is already in use.",
-                    "organization_slug_conflict"),
+                    "Studio already exists",
+                    "The supplied studio slug is already in use.",
+                    "studio_slug_conflict"),
                 _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
             };
         });
@@ -189,12 +189,12 @@ internal static partial class OrganizationEndpoints
                     StatusCodes.Status404NotFound,
                     "Target user not found",
                     "No local user projection exists for the supplied Keycloak subject.",
-                    "organization_member_target_not_found"),
+                    "studio_member_target_not_found"),
                 OrganizationMembershipMutationStatus.Conflict => CreateProblemResult(
                     StatusCodes.Status409Conflict,
-                    "Organization owner conflict",
-                    "The last organization owner cannot be removed or downgraded.",
-                    "organization_last_owner_conflict"),
+                    "Studio owner conflict",
+                    "The last studio owner cannot be removed or downgraded.",
+                    "studio_last_owner_conflict"),
                 _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
             };
         });
@@ -219,9 +219,9 @@ internal static partial class OrganizationEndpoints
                 OrganizationMembershipDeleteStatus.Forbidden => Results.Forbid(),
                 OrganizationMembershipDeleteStatus.Conflict => CreateProblemResult(
                     StatusCodes.Status409Conflict,
-                    "Organization owner conflict",
-                    "The last organization owner cannot be removed or downgraded.",
-                    "organization_last_owner_conflict"),
+                    "Studio owner conflict",
+                    "The last studio owner cannot be removed or downgraded.",
+                    "studio_last_owner_conflict"),
                 _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
             };
         });
@@ -390,10 +390,10 @@ internal sealed record OrganizationDto(
     DateTime? UpdatedAt);
 
 /// <summary>
-/// Response wrapper for organization lists.
+/// Response wrapper for studio lists.
 /// </summary>
-/// <param name="Organizations">Organizations visible to the caller.</param>
-internal sealed record OrganizationListResponse(IReadOnlyList<OrganizationDto> Organizations);
+/// <param name="Studios">Studios visible to the caller.</param>
+internal sealed record OrganizationListResponse(IReadOnlyList<OrganizationDto> Studios);
 
 /// <summary>
 /// Developer-visible organization summary DTO.
@@ -413,29 +413,29 @@ internal sealed record DeveloperOrganizationDto(
     string Role);
 
 /// <summary>
-/// Response wrapper for developer-visible organization lists.
+/// Response wrapper for developer-visible studio lists.
 /// </summary>
-/// <param name="Organizations">Organizations the caller can manage.</param>
-internal sealed record DeveloperOrganizationListResponse(IReadOnlyList<DeveloperOrganizationDto> Organizations);
+/// <param name="Studios">Studios the caller can manage.</param>
+internal sealed record DeveloperOrganizationListResponse(IReadOnlyList<DeveloperOrganizationDto> Studios);
 
 /// <summary>
-/// Response wrapper for an organization.
+/// Response wrapper for a studio.
 /// </summary>
-/// <param name="Organization">Organization details.</param>
-internal sealed record OrganizationResponse(OrganizationDto Organization);
+/// <param name="Studio">Studio details.</param>
+internal sealed record OrganizationResponse(OrganizationDto Studio);
 
 /// <summary>
 /// Organization membership DTO.
 /// </summary>
-/// <param name="OrganizationId">Organization identifier.</param>
+/// <param name="StudioId">Studio identifier.</param>
 /// <param name="KeycloakSubject">Member Keycloak subject.</param>
 /// <param name="DisplayName">Cached display name for the member.</param>
 /// <param name="Email">Cached email for the member.</param>
-/// <param name="Role">Organization-scoped role.</param>
+/// <param name="Role">Studio-scoped role.</param>
 /// <param name="JoinedAt">UTC timestamp when the membership was created.</param>
 /// <param name="UpdatedAt">UTC timestamp when the membership was last updated.</param>
 internal sealed record OrganizationMembershipDto(
-    Guid OrganizationId,
+    Guid StudioId,
     string KeycloakSubject,
     string? DisplayName,
     string? Email,

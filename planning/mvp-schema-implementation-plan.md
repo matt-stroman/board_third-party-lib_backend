@@ -33,7 +33,7 @@ As of March 2, 2026:
 
 - the backend implements a Keycloak-backed API/authentication foundation
 - the backend implements Wave 1 EF Core persistence, migrations, and the application-owned identity projection plus Board profile linkage
-- the backend now also implements Wave 2 organizations and memberships
+- the backend now also implements Wave 2 studios and memberships
 - the backend now also implements Wave 3 titles and versioned metadata
 - the backend now also implements Wave 4 title media assets, releases, and APK artifact metadata
 - the backend now also implements Wave 5 supported publishers and external acquisition bindings
@@ -66,7 +66,7 @@ Implemented now:
 - application-owned `users` projection linked to Keycloak subjects
 - Keycloak-backed platform roles (`player`, `developer`, `admin`, `moderator`) consumed from JWT claims rather than persisted as primary auth data in PostgreSQL
 - optional Board profile linkage (reference/cache only; Board remains source of truth)
-- organizations and memberships
+- studios and memberships
 - titles and versioned metadata
 - media asset slots (`card`, `hero`, `logo`)
 - releases and APK artifacts
@@ -132,19 +132,19 @@ Key notes:
 - Board profile linkage/cache is modeled in `user_board_profiles`.
 - `user_board_profiles` is optional/non-authoritative.
 
-### Wave 2: Organizations + Memberships
+### Wave 2: Studios + Memberships
 
 Status: implemented on March 1, 2026.
 
 Tables:
 
-- `organizations`
-- `organization_memberships`
+- `studios`
+- `studio_memberships`
 
 Key notes:
 
-- `organization_memberships.role` stays as a simple scoped role field (`owner`, `admin`, `editor`) for MVP.
-- Global platform roles remain Keycloak-owned; organization membership roles are the PostgreSQL-owned scoped authorization concept.
+- `studio_memberships.role` stays as a simple scoped role field (`owner`, `admin`, `editor`) for MVP.
+- Global platform roles remain Keycloak-owned; studio membership roles are the PostgreSQL-owned scoped authorization concept.
 
 ### Wave 3: Titles + Versioned Metadata
 
@@ -166,7 +166,7 @@ Key notes:
 - Keep `genre_display` for MVP; defer normalized genre taxonomy.
 - `titles.lifecycle_status` now uses `draft`, `testing`, `published`, and `archived`.
 - `titles.visibility` is separate from lifecycle and now uses `private`, `unlisted`, and `listed`.
-- public routing is aligned to storefront-style route keys: `/catalog/{organizationSlug}/{titleSlug}`.
+- public routing is aligned to storefront-style route keys: `/catalog/{studioSlug}/{titleSlug}`.
 - `title_metadata_versions` persists `display_name`, `short_description`, `description`, `genre_display`, structured player counts, and age-rating authority/value plus `min_age_years`.
 - `playerCountDisplay` and `ageDisplay` are API-derived presentation fields and are not persisted as database columns.
 - `titles.current_metadata_version_id` is constrained so a title can only point to one of its own metadata rows.
@@ -205,12 +205,12 @@ Key notes:
 
 - Focus on publisher-agnostic external acquisition binding, not provider-specific checkout orchestration.
 - `supported_publishers` should act as a platform-managed canonical registry for publishers/stores that the library recognizes and can present consistently in UI.
-- Organization-level `integration_connections` should be reusable references to external publishers/stores.
+- Studio-level `integration_connections` should be reusable references to external publishers/stores.
 - `integration_connections.supported_publisher_id` should be optional so a developer can either choose a canonical supported publisher or provide custom publisher details when no supported option fits.
-- Wave 5 should support a developer UI flow where the publisher/store choice comes from a standardized dropdown backed by `supported_publishers`, with a `custom` path that captures organization-owned custom publisher details on the connection itself.
+- Wave 5 should support a developer UI flow where the publisher/store choice comes from a standardized dropdown backed by `supported_publishers`, with a `custom` path that captures studio-owned custom publisher details on the connection itself.
 - Title-level `title_integration_bindings` should provide the player-facing acquisition target for a title, such as an external store page URL.
 - Wave 5 should model where a title is acquired, not yet how payment, download, or installation are executed inside the library.
-- Shared custom-publisher creation endpoints should remain out of scope for Wave 5; only the platform-managed registry and organization-owned custom connection details are needed.
+- Shared custom-publisher creation endpoints should remain out of scope for Wave 5; only the platform-managed registry and studio-owned custom connection details are needed.
 - Keep provider-specific settings in `jsonb`, but do not require deep provider logic for MVP.
 - Avoid a hard-coded provider enum for Wave 5; the supported registry plus custom fallback should handle standardization without enum churn.
 - Public API exposure should remain limited to acquisition metadata appropriate for link-out flows.
@@ -264,7 +264,7 @@ Registry guidance:
 
 - the platform should own a canonical `supported_publishers` registry for providers the library wants to present consistently
 - developers should still be able to configure a custom publisher/store connection when no supported registry entry fits
-- custom publisher details should live on the organization-owned connection for Wave 5 rather than creating new shared registry entries through API
+- custom publisher details should live on the studio-owned connection for Wave 5 rather than creating new shared registry entries through API
 
 Maintained research notes for this planning pass live in [`planning/wave-5-publisher-research-notes.md`](../../planning/wave-5-publisher-research-notes.md).
 
@@ -388,3 +388,5 @@ Planned next backend work items (code-first):
 3. Define how Wave 7 Board-native delivery/install should relate to release artifacts before adding artifact URLs
 
 This plan keeps database schema definition fully reproducible from code while minimizing documentation duplication.
+
+

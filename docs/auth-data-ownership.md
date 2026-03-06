@@ -51,7 +51,7 @@ These concerns should not be duplicated in PostgreSQL as primary auth tables.
 
 PostgreSQL remains the source of truth for application-owned domain data, including:
 
-- organizations and memberships
+- studios and memberships
 - titles, metadata, media assets, releases, artifacts, supported publishers, integration connections, and acquisition bindings
 - payment, entitlement, and install-delivery data when those areas are implemented
 - optional Board profile linkage/cache owned by this application
@@ -102,3 +102,4 @@ If new platform roles are introduced, update both:
 
 - the Keycloak realm import
 - the backend role catalog exposed by the API
+

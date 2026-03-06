@@ -63,13 +63,13 @@ public sealed class OrganizationEndpointTests
         }
 
         using var client = factory.CreateClient();
-        using var response = await client.GetAsync("/organizations");
+        using var response = await client.GetAsync("/studios");
         var payload = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         using var document = JsonDocument.Parse(payload);
-        var organizations = document.RootElement.GetProperty("organizations").EnumerateArray().ToList();
+        var organizations = document.RootElement.GetProperty("studios").EnumerateArray().ToList();
 
         Assert.Equal(2, organizations.Count);
         Assert.Contains(organizations, organization => organization.GetProperty("slug").GetString() == "stellar-forge");
@@ -134,13 +134,13 @@ public sealed class OrganizationEndpointTests
         }
 
         using var client = factory.CreateClient();
-        using var response = await client.GetAsync("/developer/organizations");
+        using var response = await client.GetAsync("/developer/studios");
         var payload = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         using var document = JsonDocument.Parse(payload);
-        var organizations = document.RootElement.GetProperty("organizations").EnumerateArray().ToList();
+        var organizations = document.RootElement.GetProperty("studios").EnumerateArray().ToList();
 
         Assert.Single(organizations);
         Assert.Equal(managedOrganizationId.ToString(), organizations[0].GetProperty("id").GetString());
@@ -174,13 +174,13 @@ public sealed class OrganizationEndpointTests
         }
 
         using var client = factory.CreateClient();
-        using var response = await client.GetAsync("/organizations/stellar-forge");
+        using var response = await client.GetAsync("/studios/stellar-forge");
         var payload = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         using var document = JsonDocument.Parse(payload);
-        var organization = document.RootElement.GetProperty("organization");
+        var organization = document.RootElement.GetProperty("studio");
 
         Assert.Equal(organizationId.ToString(), organization.GetProperty("id").GetString());
         Assert.Equal("Stellar Forge", organization.GetProperty("displayName").GetString());
@@ -196,7 +196,7 @@ public sealed class OrganizationEndpointTests
         using var factory = new TestApiFactory();
         using var client = factory.CreateClient();
 
-        using var response = await client.GetAsync("/organizations/missing-studio");
+        using var response = await client.GetAsync("/studios/missing-studio");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
@@ -211,7 +211,7 @@ public sealed class OrganizationEndpointTests
         using var client = factory.CreateClient();
 
         using var response = await client.PostAsJsonAsync(
-            "/organizations",
+            "/studios",
             new
             {
                 slug = "stellar-forge",
@@ -238,7 +238,7 @@ public sealed class OrganizationEndpointTests
         using var client = factory.CreateClient();
 
         using var response = await client.PostAsJsonAsync(
-            "/organizations",
+            "/studios",
             new
             {
                 slug = "stellar-forge",
@@ -274,7 +274,7 @@ public sealed class OrganizationEndpointTests
 
         using var client = factory.CreateClient();
         using var response = await client.PostAsJsonAsync(
-            "/organizations",
+            "/studios",
             new
             {
                 slug = "stellar-forge",
@@ -303,7 +303,7 @@ public sealed class OrganizationEndpointTests
         using var client = factory.CreateClient();
 
         using var response = await client.PostAsJsonAsync(
-            "/organizations",
+            "/studios",
             new
             {
                 slug = "stellar-forge",
@@ -316,7 +316,7 @@ public sealed class OrganizationEndpointTests
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 
         using var document = JsonDocument.Parse(payload);
-        var organization = document.RootElement.GetProperty("organization");
+        var organization = document.RootElement.GetProperty("studio");
         var organizationId = Guid.Parse(organization.GetProperty("id").GetString()!);
 
         Assert.Equal("stellar-forge", organization.GetProperty("slug").GetString());
@@ -348,7 +348,7 @@ public sealed class OrganizationEndpointTests
         using var client = factory.CreateClient();
 
         using var response = await client.PostAsJsonAsync(
-            "/organizations",
+            "/studios",
             new
             {
                 slug = "Invalid Slug",
@@ -418,7 +418,7 @@ public sealed class OrganizationEndpointTests
 
         using var client = factory.CreateClient();
         using var response = await client.PutAsJsonAsync(
-            $"/developer/organizations/{organizationId}",
+            $"/developer/studios/{organizationId}",
             new
             {
                 slug = "stellar-forge-studio",
@@ -454,7 +454,7 @@ public sealed class OrganizationEndpointTests
         using var client = factory.CreateClient();
 
         using var response = await client.PutAsJsonAsync(
-            $"/developer/organizations/{Guid.NewGuid()}",
+            $"/developer/studios/{Guid.NewGuid()}",
             new
             {
                 slug = "Invalid Slug",
@@ -520,7 +520,7 @@ public sealed class OrganizationEndpointTests
 
         using var client = factory.CreateClient();
         using var response = await client.PutAsJsonAsync(
-            $"/developer/organizations/{organizationId}",
+            $"/developer/studios/{organizationId}",
             new
             {
                 slug = "stellar-forge-updated",
@@ -559,7 +559,7 @@ public sealed class OrganizationEndpointTests
 
         using var client = factory.CreateClient();
         using var response = await client.PutAsJsonAsync(
-            $"/developer/organizations/{Guid.NewGuid()}",
+            $"/developer/studios/{Guid.NewGuid()}",
             new
             {
                 slug = "stellar-forge-updated",
@@ -608,7 +608,7 @@ public sealed class OrganizationEndpointTests
         }
 
         using var client = factory.CreateClient();
-        using var response = await client.GetAsync($"/developer/organizations/{organizationId}/memberships");
+        using var response = await client.GetAsync($"/developer/studios/{organizationId}/memberships");
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
@@ -683,7 +683,7 @@ public sealed class OrganizationEndpointTests
         }
 
         using var client = factory.CreateClient();
-        using var response = await client.GetAsync($"/developer/organizations/{organizationId}/memberships");
+        using var response = await client.GetAsync($"/developer/studios/{organizationId}/memberships");
         var payload = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -723,7 +723,7 @@ public sealed class OrganizationEndpointTests
         }
 
         using var client = factory.CreateClient();
-        using var response = await client.GetAsync($"/developer/organizations/{Guid.NewGuid()}/memberships");
+        using var response = await client.GetAsync($"/developer/studios/{Guid.NewGuid()}/memberships");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
@@ -786,7 +786,7 @@ public sealed class OrganizationEndpointTests
 
         using var client = factory.CreateClient();
         using var response = await client.PutAsJsonAsync(
-            $"/developer/organizations/{organizationId}/memberships/editor-456",
+            $"/developer/studios/{organizationId}/memberships/editor-456",
             new
             {
                 role = "editor"
@@ -819,7 +819,7 @@ public sealed class OrganizationEndpointTests
         using var client = factory.CreateClient();
 
         using var response = await client.PutAsJsonAsync(
-            $"/developer/organizations/{Guid.NewGuid()}/memberships/editor-456",
+            $"/developer/studios/{Guid.NewGuid()}/memberships/editor-456",
             new
             {
                 role = "viewer"
@@ -880,7 +880,7 @@ public sealed class OrganizationEndpointTests
 
         using var client = factory.CreateClient();
         using var response = await client.PutAsJsonAsync(
-            $"/developer/organizations/{organizationId}/memberships/missing-user",
+            $"/developer/studios/{organizationId}/memberships/missing-user",
             new
             {
                 role = "editor"
@@ -890,7 +890,7 @@ public sealed class OrganizationEndpointTests
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
 
         using var document = JsonDocument.Parse(payload);
-        Assert.Equal("organization_member_target_not_found", document.RootElement.GetProperty("code").GetString());
+        Assert.Equal("studio_member_target_not_found", document.RootElement.GetProperty("code").GetString());
     }
 
     /// <summary>
@@ -950,7 +950,7 @@ public sealed class OrganizationEndpointTests
 
         using var client = factory.CreateClient();
         using var response = await client.PutAsJsonAsync(
-            $"/developer/organizations/{organizationId}/memberships/owner-456",
+            $"/developer/studios/{organizationId}/memberships/owner-456",
             new
             {
                 role = "admin"
@@ -1006,7 +1006,7 @@ public sealed class OrganizationEndpointTests
         }
 
         using var client = factory.CreateClient();
-        using var response = await client.DeleteAsync($"/developer/organizations/{organizationId}/memberships/owner-123");
+        using var response = await client.DeleteAsync($"/developer/studios/{organizationId}/memberships/owner-123");
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
@@ -1058,7 +1058,7 @@ public sealed class OrganizationEndpointTests
         }
 
         using var client = factory.CreateClient();
-        using var response = await client.DeleteAsync($"/developer/organizations/{organizationId}/memberships/missing-user");
+        using var response = await client.DeleteAsync($"/developer/studios/{organizationId}/memberships/missing-user");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
@@ -1128,7 +1128,7 @@ public sealed class OrganizationEndpointTests
         }
 
         using var client = factory.CreateClient();
-        using var response = await client.DeleteAsync($"/developer/organizations/{organizationId}/memberships/owner-456");
+        using var response = await client.DeleteAsync($"/developer/studios/{organizationId}/memberships/owner-456");
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
@@ -1180,7 +1180,7 @@ public sealed class OrganizationEndpointTests
         }
 
         using var client = factory.CreateClient();
-        using var response = await client.DeleteAsync($"/developer/organizations/{organizationId}");
+        using var response = await client.DeleteAsync($"/developer/studios/{organizationId}");
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
 
@@ -1238,7 +1238,7 @@ public sealed class OrganizationEndpointTests
         }
 
         using var client = factory.CreateClient();
-        using var response = await client.DeleteAsync($"/developer/organizations/{organizationId}");
+        using var response = await client.DeleteAsync($"/developer/studios/{organizationId}");
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
@@ -1271,7 +1271,7 @@ public sealed class OrganizationEndpointTests
         }
 
         using var client = factory.CreateClient();
-        using var response = await client.DeleteAsync($"/developer/organizations/{Guid.NewGuid()}");
+        using var response = await client.DeleteAsync($"/developer/studios/{Guid.NewGuid()}");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
@@ -1407,3 +1407,4 @@ public sealed class OrganizationEndpointTests
         }
     }
 }
+

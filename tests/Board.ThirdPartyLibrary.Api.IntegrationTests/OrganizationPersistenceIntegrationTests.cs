@@ -66,7 +66,7 @@ public sealed class OrganizationPersistenceIntegrationTests : IAsyncLifetime
         using var client = factory.CreateClient();
 
         using var createResponse = await client.PostAsJsonAsync(
-            "/organizations",
+            "/studios",
             new
             {
                 slug = "stellar-forge",
@@ -79,7 +79,7 @@ public sealed class OrganizationPersistenceIntegrationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
 
         using var createDocument = JsonDocument.Parse(createPayload);
-        var organizationId = Guid.Parse(createDocument.RootElement.GetProperty("organization").GetProperty("id").GetString()!);
+        var organizationId = Guid.Parse(createDocument.RootElement.GetProperty("studio").GetProperty("id").GetString()!);
 
         await using (var seedContext = CreateDbContext())
         {
@@ -98,7 +98,7 @@ public sealed class OrganizationPersistenceIntegrationTests : IAsyncLifetime
         }
 
         using var membershipResponse = await client.PutAsJsonAsync(
-            $"/developer/organizations/{organizationId}/memberships/editor-456",
+            $"/developer/studios/{organizationId}/memberships/editor-456",
             new
             {
                 role = "editor"
@@ -106,7 +106,7 @@ public sealed class OrganizationPersistenceIntegrationTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.OK, membershipResponse.StatusCode);
 
-        using var publicGetResponse = await client.GetAsync("/organizations/stellar-forge");
+        using var publicGetResponse = await client.GetAsync("/studios/stellar-forge");
         var publicGetPayload = await publicGetResponse.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, publicGetResponse.StatusCode);
@@ -114,9 +114,9 @@ public sealed class OrganizationPersistenceIntegrationTests : IAsyncLifetime
         using var publicGetDocument = JsonDocument.Parse(publicGetPayload);
         Assert.Equal(
             "Stellar Forge",
-            publicGetDocument.RootElement.GetProperty("organization").GetProperty("displayName").GetString());
+            publicGetDocument.RootElement.GetProperty("studio").GetProperty("displayName").GetString());
 
-        using var membershipsGetResponse = await client.GetAsync($"/developer/organizations/{organizationId}/memberships");
+        using var membershipsGetResponse = await client.GetAsync($"/developer/studios/{organizationId}/memberships");
         var membershipsPayload = await membershipsGetResponse.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, membershipsGetResponse.StatusCode);
@@ -124,7 +124,7 @@ public sealed class OrganizationPersistenceIntegrationTests : IAsyncLifetime
         using var membershipsDocument = JsonDocument.Parse(membershipsPayload);
         Assert.Equal(2, membershipsDocument.RootElement.GetProperty("memberships").GetArrayLength());
 
-        using var deleteResponse = await client.DeleteAsync($"/developer/organizations/{organizationId}");
+        using var deleteResponse = await client.DeleteAsync($"/developer/studios/{organizationId}");
         Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
 
         await using var verificationContext = CreateDbContext();
@@ -246,7 +246,7 @@ public sealed class OrganizationPersistenceIntegrationTests : IAsyncLifetime
         using var client = factory.CreateClient();
 
         using var firstResponse = await client.PostAsJsonAsync(
-            "/organizations",
+            "/studios",
             new
             {
                 slug = "stellar-forge",
@@ -255,7 +255,7 @@ public sealed class OrganizationPersistenceIntegrationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
 
         using var secondResponse = await client.PostAsJsonAsync(
-            "/organizations",
+            "/studios",
             new
             {
                 slug = "stellar-forge",
@@ -266,7 +266,7 @@ public sealed class OrganizationPersistenceIntegrationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Conflict, secondResponse.StatusCode);
 
         using var document = JsonDocument.Parse(payload);
-        Assert.Equal("organization_slug_conflict", document.RootElement.GetProperty("code").GetString());
+        Assert.Equal("studio_slug_conflict", document.RootElement.GetProperty("code").GetString());
     }
 
     /// <summary>
@@ -332,7 +332,7 @@ public sealed class OrganizationPersistenceIntegrationTests : IAsyncLifetime
         using var client = factory.CreateClient();
 
         using var response = await client.PutAsJsonAsync(
-            $"/developer/organizations/{secondOrganizationId}",
+            $"/developer/studios/{secondOrganizationId}",
             new
             {
                 slug = "stellar-forge",
@@ -343,7 +343,7 @@ public sealed class OrganizationPersistenceIntegrationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
 
         using var document = JsonDocument.Parse(payload);
-        Assert.Equal("organization_slug_conflict", document.RootElement.GetProperty("code").GetString());
+        Assert.Equal("studio_slug_conflict", document.RootElement.GetProperty("code").GetString());
     }
 
     private BoardLibraryDbContext CreateDbContext()
@@ -438,3 +438,4 @@ public sealed class OrganizationPersistenceIntegrationTests : IAsyncLifetime
         }
     }
 }
+

@@ -342,7 +342,7 @@ internal sealed class AcquisitionService(
         {
             return new TitleIntegrationBindingMutationResult(
                 AcquisitionMutationStatus.Conflict,
-                ErrorCode: AcquisitionErrorCodes.TitleIntegrationOrganizationConflict);
+                ErrorCode: AcquisitionErrorCodes.TitleIntegrationStudioConflict);
         }
 
         if (command.IsEnabled && !connection.IsEnabled)
@@ -469,7 +469,7 @@ internal sealed class AcquisitionService(
         {
             return new TitleIntegrationBindingMutationResult(
                 AcquisitionMutationStatus.Conflict,
-                ErrorCode: AcquisitionErrorCodes.TitleIntegrationOrganizationConflict);
+                ErrorCode: AcquisitionErrorCodes.TitleIntegrationStudioConflict);
         }
 
         if (command.IsEnabled && !connection.IsEnabled)
@@ -918,7 +918,7 @@ internal sealed record AcquisitionTitleAccessResult(
 internal static class AcquisitionErrorCodes
 {
     public const string IntegrationConnectionInUse = "integration_connection_in_use";
-    public const string TitleIntegrationOrganizationConflict = "title_integration_organization_conflict";
+    public const string TitleIntegrationStudioConflict = "title_integration_studio_conflict";
     public const string TitleIntegrationPrimaryRequired = "title_integration_primary_required";
     public const string TitleIntegrationConnectionDisabled = "title_integration_connection_disabled";
 }

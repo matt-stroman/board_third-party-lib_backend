@@ -91,7 +91,7 @@ public sealed class TitleWave4PersistenceIntegrationTests : IAsyncLifetime
         using var client = factory.CreateClient();
 
         using var createTitleResponse = await client.PostAsJsonAsync(
-            $"/developer/organizations/{organizationId}/titles",
+            $"/developer/studios/{organizationId}/titles",
             new
             {
                 slug = "star-blasters",
@@ -723,3 +723,4 @@ public sealed class TitleWave4PersistenceIntegrationTests : IAsyncLifetime
         }
     }
 }
+

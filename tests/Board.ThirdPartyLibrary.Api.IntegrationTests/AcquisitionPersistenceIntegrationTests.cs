@@ -89,7 +89,7 @@ public sealed class AcquisitionPersistenceIntegrationTests : IAsyncLifetime
         using var client = factory.CreateClient();
 
         using var createTitleResponse = await client.PostAsJsonAsync(
-            $"/developer/organizations/{organizationId}/titles",
+            $"/developer/studios/{organizationId}/titles",
             new
             {
                 slug = "star-blasters",
@@ -142,7 +142,7 @@ public sealed class AcquisitionPersistenceIntegrationTests : IAsyncLifetime
                 .GetString()!);
 
         using var createConnectionResponse = await client.PostAsJsonAsync(
-            $"/developer/organizations/{organizationId}/integration-connections",
+            $"/developer/studios/{organizationId}/integration-connections",
             new
             {
                 supportedPublisherId = itchPublisherId,
@@ -174,7 +174,7 @@ public sealed class AcquisitionPersistenceIntegrationTests : IAsyncLifetime
             });
         Assert.Equal(HttpStatusCode.Created, createBindingResponse.StatusCode);
 
-        using var publicListResponse = await client.GetAsync("/catalog?organizationSlug=stellar-forge&contentKind=game");
+        using var publicListResponse = await client.GetAsync("/catalog?studioSlug=stellar-forge&contentKind=game");
         var publicListPayload = await publicListResponse.Content.ReadAsStringAsync();
         Assert.Equal(HttpStatusCode.OK, publicListResponse.StatusCode);
 
@@ -192,7 +192,7 @@ public sealed class AcquisitionPersistenceIntegrationTests : IAsyncLifetime
             "itch.io",
             publicDetailDocument.RootElement.GetProperty("title").GetProperty("acquisition").GetProperty("providerDisplayName").GetString());
 
-        using var deleteConnectionResponse = await client.DeleteAsync($"/developer/organizations/{organizationId}/integration-connections/{connectionId}");
+        using var deleteConnectionResponse = await client.DeleteAsync($"/developer/studios/{organizationId}/integration-connections/{connectionId}");
         Assert.Equal(HttpStatusCode.Conflict, deleteConnectionResponse.StatusCode);
     }
 
@@ -345,7 +345,7 @@ public sealed class AcquisitionPersistenceIntegrationTests : IAsyncLifetime
         using var client = factory.CreateClient();
 
         using var createConnectionResponse = await client.PostAsJsonAsync(
-            $"/developer/organizations/{organizationId}/integration-connections",
+            $"/developer/studios/{organizationId}/integration-connections",
             new
             {
                 customPublisherDisplayName = "Stellar Forge Direct",
@@ -363,7 +363,7 @@ public sealed class AcquisitionPersistenceIntegrationTests : IAsyncLifetime
         var connection = createConnectionDocument.RootElement.GetProperty("integrationConnection");
         Assert.Equal("Stellar Forge Direct", connection.GetProperty("customPublisherDisplayName").GetString());
 
-        using var listConnectionsResponse = await client.GetAsync($"/developer/organizations/{organizationId}/integration-connections");
+        using var listConnectionsResponse = await client.GetAsync($"/developer/studios/{organizationId}/integration-connections");
         var listConnectionsPayload = await listConnectionsResponse.Content.ReadAsStringAsync();
         Assert.Equal(HttpStatusCode.OK, listConnectionsResponse.StatusCode);
 
@@ -628,3 +628,4 @@ public sealed class AcquisitionPersistenceIntegrationTests : IAsyncLifetime
         }
     }
 }
+

@@ -15,7 +15,7 @@ internal static class AcquisitionEndpoints
     public static IEndpointRouteBuilder MapAcquisitionEndpoints(this IEndpointRouteBuilder app)
     {
         var publicGroup = app.MapGroup(string.Empty);
-        var developerOrganizationGroup = app.MapGroup("/developer/organizations");
+        var developerStudioGroup = app.MapGroup("/developer/studios");
         var developerTitleGroup = app.MapGroup("/developer/titles");
 
         publicGroup.MapGet("/supported-publishers", async (
@@ -26,13 +26,13 @@ internal static class AcquisitionEndpoints
             return Results.Ok(new SupportedPublisherListResponse(publishers.Select(MapSupportedPublisher).ToArray()));
         });
 
-        developerOrganizationGroup.MapGet("/{organizationId:guid}/integration-connections", [Authorize] async (
+        developerStudioGroup.MapGet("/{studioId:guid}/integration-connections", [Authorize] async (
             ClaimsPrincipal user,
-            Guid organizationId,
+            Guid studioId,
             IAcquisitionService acquisitionService,
             CancellationToken cancellationToken) =>
         {
-            var result = await acquisitionService.ListIntegrationConnectionsAsync(user.Claims, organizationId, cancellationToken);
+            var result = await acquisitionService.ListIntegrationConnectionsAsync(user.Claims, studioId, cancellationToken);
             return result.Status switch
             {
                 AcquisitionListStatus.Success => Results.Ok(
@@ -43,9 +43,9 @@ internal static class AcquisitionEndpoints
             };
         });
 
-        developerOrganizationGroup.MapPost("/{organizationId:guid}/integration-connections", [Authorize] async (
+        developerStudioGroup.MapPost("/{studioId:guid}/integration-connections", [Authorize] async (
             ClaimsPrincipal user,
-            Guid organizationId,
+            Guid studioId,
             UpsertIntegrationConnectionRequest request,
             IAcquisitionService acquisitionService,
             CancellationToken cancellationToken) =>
@@ -58,14 +58,14 @@ internal static class AcquisitionEndpoints
 
             var result = await acquisitionService.CreateIntegrationConnectionAsync(
                 user.Claims,
-                organizationId,
+                studioId,
                 MapIntegrationConnectionCommand(request),
                 cancellationToken);
 
             return result.Status switch
             {
                 AcquisitionMutationStatus.Success => Results.Created(
-                    $"/developer/organizations/{organizationId}/integration-connections/{result.IntegrationConnection!.Id}",
+                    $"/developer/studios/{studioId}/integration-connections/{result.IntegrationConnection!.Id}",
                     new IntegrationConnectionResponse(MapIntegrationConnection(result.IntegrationConnection))),
                 AcquisitionMutationStatus.NotFound => Results.NotFound(),
                 AcquisitionMutationStatus.Forbidden => Results.Forbid(),
@@ -73,14 +73,14 @@ internal static class AcquisitionEndpoints
             };
         });
 
-        developerOrganizationGroup.MapGet("/{organizationId:guid}/integration-connections/{connectionId:guid}", [Authorize] async (
+        developerStudioGroup.MapGet("/{studioId:guid}/integration-connections/{connectionId:guid}", [Authorize] async (
             ClaimsPrincipal user,
-            Guid organizationId,
+            Guid studioId,
             Guid connectionId,
             IAcquisitionService acquisitionService,
             CancellationToken cancellationToken) =>
         {
-            var result = await acquisitionService.GetIntegrationConnectionAsync(user.Claims, organizationId, connectionId, cancellationToken);
+            var result = await acquisitionService.GetIntegrationConnectionAsync(user.Claims, studioId, connectionId, cancellationToken);
             return result.Status switch
             {
                 AcquisitionMutationStatus.Success => Results.Ok(
@@ -91,9 +91,9 @@ internal static class AcquisitionEndpoints
             };
         });
 
-        developerOrganizationGroup.MapPut("/{organizationId:guid}/integration-connections/{connectionId:guid}", [Authorize] async (
+        developerStudioGroup.MapPut("/{studioId:guid}/integration-connections/{connectionId:guid}", [Authorize] async (
             ClaimsPrincipal user,
-            Guid organizationId,
+            Guid studioId,
             Guid connectionId,
             UpsertIntegrationConnectionRequest request,
             IAcquisitionService acquisitionService,
@@ -107,7 +107,7 @@ internal static class AcquisitionEndpoints
 
             var result = await acquisitionService.UpdateIntegrationConnectionAsync(
                 user.Claims,
-                organizationId,
+                studioId,
                 connectionId,
                 MapIntegrationConnectionCommand(request),
                 cancellationToken);
@@ -122,14 +122,14 @@ internal static class AcquisitionEndpoints
             };
         });
 
-        developerOrganizationGroup.MapDelete("/{organizationId:guid}/integration-connections/{connectionId:guid}", [Authorize] async (
+        developerStudioGroup.MapDelete("/{studioId:guid}/integration-connections/{connectionId:guid}", [Authorize] async (
             ClaimsPrincipal user,
-            Guid organizationId,
+            Guid studioId,
             Guid connectionId,
             IAcquisitionService acquisitionService,
             CancellationToken cancellationToken) =>
         {
-            var result = await acquisitionService.DeleteIntegrationConnectionAsync(user.Claims, organizationId, connectionId, cancellationToken);
+            var result = await acquisitionService.DeleteIntegrationConnectionAsync(user.Claims, studioId, connectionId, cancellationToken);
             return result.Status switch
             {
                 AcquisitionMutationStatus.Success => Results.NoContent(),
@@ -398,10 +398,10 @@ internal static class AcquisitionEndpoints
     private static IResult CreateConflictResult(string? errorCode) =>
         errorCode switch
         {
-            AcquisitionErrorCodes.TitleIntegrationOrganizationConflict => CreateProblemResult(
+            AcquisitionErrorCodes.TitleIntegrationStudioConflict => CreateProblemResult(
                 StatusCodes.Status409Conflict,
                 "Title integration conflict",
-                "The supplied integration connection must belong to the same organization as the title.",
+                "The supplied integration connection must belong to the same studio as the title.",
                 errorCode),
             AcquisitionErrorCodes.TitleIntegrationConnectionDisabled => CreateProblemResult(
                 StatusCodes.Status409Conflict,
@@ -444,7 +444,7 @@ internal sealed record UpsertIntegrationConnectionRequest(
 /// <summary>
 /// Request payload for creating or updating a title acquisition binding.
 /// </summary>
-/// <param name="IntegrationConnectionId">Organization-owned integration connection identifier.</param>
+/// <param name="IntegrationConnectionId">Studio-owned integration connection identifier.</param>
 /// <param name="AcquisitionUrl">Player-facing external acquisition URL.</param>
 /// <param name="AcquisitionLabel">Optional player-facing acquisition label.</param>
 /// <param name="Configuration">Optional provider-specific non-secret configuration object.</param>
@@ -475,7 +475,7 @@ internal sealed record SupportedPublisherDto(
 /// Integration connection DTO.
 /// </summary>
 /// <param name="Id">Integration connection identifier.</param>
-/// <param name="OrganizationId">Owning organization identifier.</param>
+/// <param name="StudioId">Owning studio identifier.</param>
 /// <param name="SupportedPublisherId">Linked supported publisher identifier when present.</param>
 /// <param name="SupportedPublisher">Canonical supported publisher details when present.</param>
 /// <param name="CustomPublisherDisplayName">Custom publisher display name when using a custom connection.</param>
@@ -486,7 +486,7 @@ internal sealed record SupportedPublisherDto(
 /// <param name="UpdatedAt">UTC update timestamp.</param>
 internal sealed record IntegrationConnectionDto(
     Guid Id,
-    Guid OrganizationId,
+    Guid StudioId,
     Guid? SupportedPublisherId,
     SupportedPublisherDto? SupportedPublisher,
     string? CustomPublisherDisplayName,

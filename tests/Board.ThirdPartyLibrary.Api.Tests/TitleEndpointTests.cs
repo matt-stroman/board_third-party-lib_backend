@@ -368,7 +368,7 @@ public sealed class TitleEndpointTests
         }
 
         using var client = factory.CreateClient();
-        using var response = await client.GetAsync("/catalog?organizationSlug=stellar-forge&contentKind=game");
+        using var response = await client.GetAsync("/catalog?studioSlug=stellar-forge&contentKind=game");
         var payload = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -498,7 +498,7 @@ public sealed class TitleEndpointTests
 
         using var client = factory.CreateClient();
         using var response = await client.PostAsJsonAsync(
-            $"/developer/organizations/{organizationId}/titles",
+            $"/developer/studios/{organizationId}/titles",
             new
             {
                 slug = "star-blasters",
@@ -587,7 +587,7 @@ public sealed class TitleEndpointTests
 
         using var client = factory.CreateClient();
         using var response = await client.PostAsJsonAsync(
-            $"/developer/organizations/{organizationId}/titles",
+            $"/developer/studios/{organizationId}/titles",
             new
             {
                 slug = "Invalid Slug",
@@ -659,7 +659,7 @@ public sealed class TitleEndpointTests
 
         using var client = factory.CreateClient();
         using var response = await client.PostAsJsonAsync(
-            $"/developer/organizations/{organizationId}/titles",
+            $"/developer/studios/{organizationId}/titles",
             new
             {
                 slug = "star-blasters",
@@ -711,7 +711,7 @@ public sealed class TitleEndpointTests
 
         using var client = factory.CreateClient();
         using var response = await client.PostAsJsonAsync(
-            $"/developer/organizations/{Guid.NewGuid()}/titles",
+            $"/developer/studios/{Guid.NewGuid()}/titles",
             new
             {
                 slug = "star-blasters",
@@ -774,7 +774,7 @@ public sealed class TitleEndpointTests
         }
 
         using var client = factory.CreateClient();
-        using var response = await client.GetAsync($"/developer/organizations/{organizationId}/titles");
+        using var response = await client.GetAsync($"/developer/studios/{organizationId}/titles");
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
@@ -806,7 +806,7 @@ public sealed class TitleEndpointTests
         }
 
         using var client = factory.CreateClient();
-        using var response = await client.GetAsync($"/developer/organizations/{Guid.NewGuid()}/titles");
+        using var response = await client.GetAsync($"/developer/studios/{Guid.NewGuid()}/titles");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
@@ -2092,3 +2092,4 @@ public sealed class TitleEndpointTests
         }
     }
 }
+
