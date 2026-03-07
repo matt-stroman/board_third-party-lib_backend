@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using Board.ThirdPartyLibrary.Api.Identity;
+using Board.ThirdPartyLibrary.Api.Persistence;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
 
 namespace Board.ThirdPartyLibrary.Api.Moderation;
 
@@ -15,6 +17,63 @@ internal static class ModerationEndpoints
     public static IEndpointRouteBuilder MapModerationEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/moderation");
+
+        group.MapGet("/developers", [Authorize] async (
+            ClaimsPrincipal user,
+            BoardLibraryDbContext dbContext,
+            CancellationToken cancellationToken) =>
+        {
+            if (!HasModeratorAccess(user.Claims))
+            {
+                return CreateProblemResult(
+                    StatusCodes.Status403Forbidden,
+                    "Moderator access is required.",
+                    "Only moderators and above can view developer moderation tools.",
+                    "moderator_access_required");
+            }
+
+            var developers = await dbContext.Users
+                .AsNoTracking()
+                .OrderBy(candidate => candidate.UserName ?? candidate.DisplayName ?? candidate.Email ?? candidate.KeycloakSubject)
+                .Select(candidate => new ModerationDeveloperSummary(
+                    candidate.KeycloakSubject,
+                    candidate.UserName,
+                    candidate.DisplayName,
+                    candidate.Email))
+                .ToArrayAsync(cancellationToken);
+
+            return Results.Ok(new ModerationDeveloperListResponse(developers));
+        });
+
+        group.MapGet("/developers/{developerIdentifier}/verification", [Authorize] async (
+            ClaimsPrincipal user,
+            string developerIdentifier,
+            IDeveloperEnrollmentService developerEnrollmentService,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await developerEnrollmentService.GetVerifiedDeveloperRoleStateAsync(
+                user.Claims,
+                developerIdentifier,
+                cancellationToken);
+
+            return result.Status switch
+            {
+                VerifiedDeveloperRoleReadStatus.Success => Results.Ok(
+                    new VerifiedDeveloperRoleStateResponse(MapVerifiedDeveloperRoleState(result.State!))),
+                VerifiedDeveloperRoleReadStatus.Forbidden => CreateProblemResult(
+                    StatusCodes.Status403Forbidden,
+                    "Moderator access is required.",
+                    "Only moderators and above can manage verification state.",
+                    "moderator_access_required"),
+                VerifiedDeveloperRoleReadStatus.NotFound => Results.NotFound(),
+                VerifiedDeveloperRoleReadStatus.UpstreamFailure => CreateProblemResult(
+                    StatusCodes.Status502BadGateway,
+                    "Verification lookup failed.",
+                    result.ErrorDetail ?? "Keycloak role lookup failed for the target user.",
+                    "keycloak_verified_developer_role_failed"),
+                _ => Results.StatusCode(StatusCodes.Status500InternalServerError)
+            };
+        });
 
         group.MapPut("/developers/{developerSubject}/verified-developer", [Authorize] async (
             ClaimsPrincipal user,
@@ -71,6 +130,12 @@ internal static class ModerationEndpoints
     private static VerifiedDeveloperRoleState MapVerifiedDeveloperRoleState(VerifiedDeveloperRoleStateSnapshot snapshot) =>
         new(snapshot.DeveloperSubject, snapshot.VerifiedDeveloper, snapshot.AlreadyInRequestedState);
 
+    private static bool HasModeratorAccess(IEnumerable<Claim> claims) =>
+        claims.Any(claim =>
+            claim.Type == ClaimTypes.Role &&
+            (string.Equals(claim.Value, "moderator", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(claim.Value, "admin", StringComparison.OrdinalIgnoreCase)));
+
     private static IResult CreateProblemResult(int statusCode, string title, string detail, string code) =>
         Results.Json(
             new ModerationProblemEnvelope(
@@ -81,6 +146,25 @@ internal static class ModerationEndpoints
                 Code: code),
             statusCode: statusCode);
 }
+
+/// <summary>
+/// Moderation-visible user summary for developer verification workflows.
+/// </summary>
+/// <param name="DeveloperSubject">Stable Keycloak subject identifier.</param>
+/// <param name="UserName">Cached username when available.</param>
+/// <param name="DisplayName">Cached display name when available.</param>
+/// <param name="Email">Cached email when available.</param>
+internal sealed record ModerationDeveloperSummary(
+    string DeveloperSubject,
+    string? UserName,
+    string? DisplayName,
+    string? Email);
+
+/// <summary>
+/// Response wrapper for moderation developer listing.
+/// </summary>
+/// <param name="Developers">Returned moderation user list.</param>
+internal sealed record ModerationDeveloperListResponse(IReadOnlyList<ModerationDeveloperSummary> Developers);
 
 /// <summary>
 /// Verified developer role state returned by moderation role-mutation endpoints.

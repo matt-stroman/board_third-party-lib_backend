@@ -345,6 +345,48 @@ public sealed class IdentityPersistenceIntegrationTests : IAsyncLifetime
     }
 
     /// <summary>
+    /// Verifies moderators can query current verification state through moderation endpoint.
+    /// </summary>
+    [Fact]
+    public async Task VerifiedDeveloperStateEndpoint_WithRealPostgres_ReturnsState()
+    {
+        await using (var migrationContext = CreateDbContext())
+        {
+            await migrationContext.Database.MigrateAsync();
+        }
+
+        var roleClient = new StubKeycloakUserRoleClient(
+            roleCheckResult: KeycloakUserRoleCheckResult.Success(isAssigned: true));
+
+        using var factory = new RealPostgresApiFactory(
+            _postgresContainer.GetConnectionString(),
+            [
+                new Claim("sub", "moderator-123"),
+                new Claim("name", "Moderator User"),
+                new Claim(ClaimTypes.Role, "player"),
+                new Claim(ClaimTypes.Role, "moderator")
+            ],
+            configureServices: services =>
+            {
+                services.RemoveAll<IKeycloakUserRoleClient>();
+                services.AddSingleton<IKeycloakUserRoleClient>(roleClient);
+            });
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/moderation/developers/developer-123/verification");
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        var state = document.RootElement.GetProperty("verifiedDeveloperRoleState");
+        Assert.Equal("developer-123", state.GetProperty("developerSubject").GetString());
+        Assert.True(state.GetProperty("verifiedDeveloper").GetBoolean());
+        Assert.False(state.GetProperty("alreadyInRequestedState").GetBoolean());
+        Assert.Equal(2, roleClient.RoleCheckCallCount);
+    }
+
+    /// <summary>
     /// Verifies the schema rejects duplicate Keycloak subject values.
     /// </summary>
     [Fact]

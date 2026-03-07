@@ -99,7 +99,7 @@ Current persistence note:
 
 - PostgreSQL is now used for backend readiness plus Wave 1 through Wave 5 persistence.
 - Keycloak owns authentication data, platform roles, and login/account lifecycle flows.
-- The maintained current API surface includes persisted Board profile CRUD, organizations/memberships, titles/versioned metadata, media assets, release history, APK artifact metadata, supported publishers, and external acquisition bindings backed by PostgreSQL.
+- The maintained current API surface includes persisted Board profile CRUD, studios/memberships, titles/versioned metadata, media assets, release history, APK artifact metadata, supported publishers, and external acquisition bindings backed by PostgreSQL.
 - See [`backend/docs/auth-data-ownership.md`](auth-data-ownership.md) for the current data ownership boundary.
 - See [`backend/docs/title-catalog-schema.md`](title-catalog-schema.md) for the current title/catalog schema and lifecycle model.
 
@@ -239,3 +239,4 @@ See also:
 - [Technology direction (`planning/technology-fit-recommendation.md`)](../../planning/technology-fit-recommendation.md)
 - [Phase 1 Postgres setup (`backend/docs/backend-phase-1-postgres-setup.md`)](backend-phase-1-postgres-setup.md)
 - [Postman API testing (`backend/docs/postman-api-testing.md`)](postman-api-testing.md)
+

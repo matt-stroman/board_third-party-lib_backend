@@ -961,6 +961,126 @@ public sealed class ApiEndpointTests
     }
 
     /// <summary>
+    /// Verifies non-moderators cannot view moderation developer listings.
+    /// </summary>
+    [Fact]
+    public async Task ModerationDevelopersEndpoint_WithoutModeratorRole_ReturnsForbidden()
+    {
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "player-123"),
+                new Claim(ClaimTypes.Role, "player")
+            ]);
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/moderation/developers");
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        Assert.Equal("moderator_access_required", document.RootElement.GetProperty("code").GetString());
+    }
+
+    /// <summary>
+    /// Verifies moderators can list users for verification workflows.
+    /// </summary>
+    [Fact]
+    public async Task ModerationDevelopersEndpoint_WithModeratorRole_ReturnsUsers()
+    {
+        using var factory = new TestApiFactory(
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "moderator-123"),
+                new Claim(ClaimTypes.Role, "player"),
+                new Claim(ClaimTypes.Role, "moderator")
+            ]);
+        using var scope = factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<BoardLibraryDbContext>();
+        dbContext.Users.AddRange(
+            new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "dev-100",
+                UserName = "alpha.dev",
+                DisplayName = "Alpha Dev",
+                Email = "alpha.dev@boardtpl.local",
+                EmailVerified = true,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            },
+            new AppUser
+            {
+                Id = Guid.NewGuid(),
+                KeycloakSubject = "dev-200",
+                UserName = "zeta.dev",
+                DisplayName = "Zeta Dev",
+                Email = "zeta.dev@boardtpl.local",
+                EmailVerified = true,
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+        await dbContext.SaveChangesAsync();
+
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync("/moderation/developers");
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        var developers = document.RootElement.GetProperty("developers").EnumerateArray().ToArray();
+        Assert.Equal(2, developers.Length);
+        Assert.Equal("alpha.dev", developers[0].GetProperty("userName").GetString());
+        Assert.Equal("zeta.dev", developers[1].GetProperty("userName").GetString());
+    }
+
+    /// <summary>
+    /// Verifies moderators can query current verification state for a developer.
+    /// </summary>
+    [Fact]
+    public async Task VerifiedDeveloperStateEndpoint_WithModeratorRole_ReturnsState()
+    {
+        var roleClient = new StubKeycloakUserRoleClient(
+            roleCheckResolver: roleName => roleName switch
+            {
+                "developer" => KeycloakUserRoleCheckResult.Success(isAssigned: true),
+                "verified_developer" => KeycloakUserRoleCheckResult.Success(isAssigned: true),
+                _ => KeycloakUserRoleCheckResult.Success(isAssigned: false)
+            });
+
+        using var factory = new TestApiFactory(
+            configureServices: services =>
+            {
+                services.RemoveAll<IKeycloakUserRoleClient>();
+                services.AddSingleton<IKeycloakUserRoleClient>(roleClient);
+            },
+            useTestAuthentication: true,
+            testClaims:
+            [
+                new Claim("sub", "moderator-123"),
+                new Claim(ClaimTypes.Role, "player"),
+                new Claim(ClaimTypes.Role, "moderator")
+            ]);
+
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync("/moderation/developers/developer-123/verification");
+        var payload = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var document = JsonDocument.Parse(payload);
+        var state = document.RootElement.GetProperty("verifiedDeveloperRoleState");
+        Assert.Equal("developer-123", state.GetProperty("developerSubject").GetString());
+        Assert.True(state.GetProperty("verifiedDeveloper").GetBoolean());
+        Assert.False(state.GetProperty("alreadyInRequestedState").GetBoolean());
+        Assert.Equal(2, roleClient.RoleCheckCallCount);
+    }
+
+    /// <summary>
     /// Verifies moderators can grant verified developer role to an existing developer account.
     /// </summary>
     [Fact]

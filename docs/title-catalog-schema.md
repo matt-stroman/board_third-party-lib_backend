@@ -29,8 +29,8 @@ This is a maintained design/reference doc, but it is not a second exhaustive sch
 The current implemented scope includes:
 
 - public catalog browsing via `/catalog`
-- storefront-style public title detail via `/catalog/{organizationSlug}/{titleSlug}`
-- authenticated title management scoped to organizations
+- storefront-style public title detail via `/catalog/{studioSlug}/{titleSlug}`
+- authenticated title management scoped to studios
 - versioned metadata snapshots for player-facing catalog copy
 - draft/testing/published/archived lifecycle state
 - private/unlisted/listed visibility state
@@ -38,13 +38,13 @@ The current implemented scope includes:
 - fixed media slots for card, hero, and logo assets
 - semver release records bound to metadata revisions
 - APK artifact metadata records for published releases
-- supported publisher registry, reusable organization-level publisher connections, and title-level acquisition bindings
+- supported publisher registry, reusable studio-level publisher connections, and title-level acquisition bindings
 
 ## Public Routing And Discoverability
 
-Public title routing is organization-scoped to prevent ambiguity across different developers:
+Public title routing is studio-scoped to prevent ambiguity across different developers:
 
-- `/catalog/{organizationSlug}/{titleSlug}`
+- `/catalog/{studioSlug}/{titleSlug}`
 
 Discoverability is intentionally separate from lifecycle:
 
@@ -67,18 +67,18 @@ The current title/catalog surface uses these PostgreSQL tables:
 
 High-level ownership split:
 
-- `titles` stores stable title identity, owning organization, lifecycle state, visibility, and the pointer to the currently active metadata revision
+- `titles` stores stable title identity, owning studio, lifecycle state, visibility, and the pointer to the currently active metadata revision
 - `title_metadata_versions` stores player-facing metadata snapshots with per-title revision numbers
 - `title_media_assets` stores fixed Board-style media slots per title
 - `title_releases` stores semver release history bound to a title and one metadata revision
 - `release_artifacts` stores installable artifact metadata for a release
 - `supported_publishers` stores platform-managed canonical publisher/store registry entries
-- `integration_connections` stores reusable organization-owned supported/custom publisher connections
+- `integration_connections` stores reusable studio-owned supported/custom publisher connections
 - `title_integration_bindings` stores title-scoped external acquisition links
 
 Important integrity rules:
 
-- title slugs are unique only within an organization
+- title slugs are unique only within a studio
 - metadata revision numbers are unique only within a title
 - `titles.current_metadata_version_id` is constrained so it can only reference metadata that belongs to the same title
 - media roles are unique only within a title
@@ -169,11 +169,11 @@ Current supported publisher behavior:
 
 - `supported_publishers` is a platform-managed canonical registry
 - supported publishers are seeded through EF Core migrations
-- developers can list supported publishers and choose one when configuring an organization connection
+- developers can list supported publishers and choose one when configuring a studio connection
 
 Current integration connection behavior:
 
-- each `integration_connection` belongs to exactly one organization
+- each `integration_connection` belongs to exactly one studio
 - a connection must point to either one supported publisher or one custom publisher definition
 - custom publisher connections currently require both display name and homepage URL
 - provider-specific non-secret configuration can be stored in `config_json`
@@ -194,10 +194,10 @@ Waves 4 and 5 extend public catalog responses without exposing install delivery.
 Current behavior:
 
 - `GET /catalog` can include `cardImageUrl` and `acquisitionUrl` in title summaries
-- `GET /catalog/{organizationSlug}/{titleSlug}` includes `mediaAssets`, `currentRelease`, and `acquisition`
+- `GET /catalog/{studioSlug}/{titleSlug}` includes `mediaAssets`, `currentRelease`, and `acquisition`
 - `currentRelease` is a summary view only; artifact internals remain developer-only
 - developer endpoints manage media, releases, publish/activate/withdraw transitions, artifact metadata, and title acquisition bindings under `/developer/titles/{titleId}/...`
-- developer endpoints manage organization-level publisher connections under `/developer/organizations/{organizationId}/integration-connections`
+- developer endpoints manage studio-level publisher connections under `/developer/studios/{studioId}/integration-connections`
 - supported publisher discovery is exposed publicly through `GET /supported-publishers`
 
 ## Age Ratings And Derived Display Fields
@@ -258,3 +258,5 @@ The following remain out of scope after Wave 5:
 - shared custom-publisher registry management endpoints beyond the seeded supported publisher catalog
 
 Semver belongs on `title_releases`, not on `title_metadata_versions`. Metadata revisions capture catalog copy, not release identity. Artifact delivery remains deferred until the Board-device workflow is defined.
+
+

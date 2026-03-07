@@ -67,9 +67,9 @@ Separation rule applied:
 
 Important for live local runs:
 
-- the committed local environment uses placeholders for `accessToken`, `moderatorAccessToken`, `developerSubject`, `organizationId`, `organizationSlug`, `titleId`, and `titleSlug`
+- the committed local environment uses placeholders for `accessToken`, `moderatorAccessToken`, `developerSubject`, `studioId`, `studioSlug`, `titleId`, and `titleSlug`
 - authenticated success-path requests are skipped until those placeholders are replaced with real local values
-- Wave 4 and Wave 5 developer requests reuse the same `titleId`, `organizationId`, and auth placeholders; no extra environment variables are required for media, release, artifact, supported-publisher, connection, or acquisition-binding requests
+- Wave 4 and Wave 5 developer requests reuse the same `titleId`, `studioId`, and auth placeholders; no extra environment variables are required for media, release, artifact, supported-publisher, connection, or acquisition-binding requests
 - this is expected and prevents false failures when developers only want public or unauthenticated smoke coverage
 
 ## How to run via CLI
@@ -105,7 +105,9 @@ When you add new endpoints:
 Recommended patterns:
 
 - Keep one maintained contract collection for the current API boundary
-- Use folders by domain (`Catalog`, `Organizations`, `Identity`, etc.)
+- Use folders by domain (`Catalog`, `Studios`, `Identity`, etc.)
 - Add both happy-path and error-path coverage when endpoint behavior becomes more complex
 - Prefer portable validation/conflict examples for Wave 4 and Wave 5 developer endpoints so the collection still runs cleanly with placeholder local environment values
 - Keep shared secrets out of committed environments; use private local environment files instead
+
+

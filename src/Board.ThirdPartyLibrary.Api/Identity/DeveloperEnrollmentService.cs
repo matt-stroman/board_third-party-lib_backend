@@ -1,5 +1,7 @@
 using System.Security.Claims;
 using Board.ThirdPartyLibrary.Api.Auth;
+using Board.ThirdPartyLibrary.Api.Persistence;
+using Microsoft.EntityFrameworkCore;
 
 namespace Board.ThirdPartyLibrary.Api.Identity;
 
@@ -7,11 +9,13 @@ internal interface IDeveloperEnrollmentService
 {
     Task<DeveloperEnrollmentStateSnapshot> GetCurrentEnrollmentAsync(IEnumerable<Claim> claims, CancellationToken cancellationToken = default);
     Task<DeveloperEnrollmentMutationResult> SubmitEnrollmentAsync(IEnumerable<Claim> claims, CancellationToken cancellationToken = default);
-    Task<VerifiedDeveloperRoleMutationResult> SetVerifiedDeveloperRoleAsync(IEnumerable<Claim> claims, string developerSubject, bool verifiedDeveloper, CancellationToken cancellationToken = default);
+    Task<VerifiedDeveloperRoleReadResult> GetVerifiedDeveloperRoleStateAsync(IEnumerable<Claim> claims, string developerIdentifier, CancellationToken cancellationToken = default);
+    Task<VerifiedDeveloperRoleMutationResult> SetVerifiedDeveloperRoleAsync(IEnumerable<Claim> claims, string developerIdentifier, bool verifiedDeveloper, CancellationToken cancellationToken = default);
     Task<bool> HasDeveloperAccessAsync(IEnumerable<Claim> claims, CancellationToken cancellationToken = default);
 }
 
 internal sealed class DeveloperEnrollmentService(
+    BoardLibraryDbContext dbContext,
     IIdentityPersistenceService identityPersistenceService,
     IKeycloakUserRoleClient keycloakUserRoleClient) : IDeveloperEnrollmentService
 {
@@ -67,9 +71,54 @@ internal sealed class DeveloperEnrollmentService(
         return new(DeveloperEnrollmentMutationStatus.Success, CreateEnrollmentStateSnapshot(hasDeveloperAccess, hasVerifiedDeveloperRole));
     }
 
+    public async Task<VerifiedDeveloperRoleReadResult> GetVerifiedDeveloperRoleStateAsync(
+        IEnumerable<Claim> claims,
+        string developerIdentifier,
+        CancellationToken cancellationToken = default)
+    {
+        if (!HasModeratorAccess(claims))
+        {
+            return new(VerifiedDeveloperRoleReadStatus.Forbidden);
+        }
+
+        if (string.IsNullOrWhiteSpace(developerIdentifier))
+        {
+            return new(VerifiedDeveloperRoleReadStatus.NotFound);
+        }
+
+        await identityPersistenceService.EnsureCurrentUserProjectionAsync(claims, cancellationToken);
+        var normalizedIdentifier = developerIdentifier.Trim();
+        var resolvedSubject = await ResolveDeveloperSubjectAsync(normalizedIdentifier, cancellationToken);
+
+        var developerRoleCheck = await keycloakUserRoleClient.IsRealmRoleAssignedAsync(resolvedSubject, DeveloperRoleName, cancellationToken);
+        if (developerRoleCheck.UserNotFound || (developerRoleCheck.Succeeded && !developerRoleCheck.IsAssigned))
+        {
+            return new(VerifiedDeveloperRoleReadStatus.NotFound);
+        }
+
+        if (!developerRoleCheck.Succeeded)
+        {
+            return new(
+                VerifiedDeveloperRoleReadStatus.UpstreamFailure,
+                ErrorDetail: developerRoleCheck.ErrorDetail ?? "Keycloak developer-role lookup failed for the target user.");
+        }
+
+        var verifiedRoleCheck = await keycloakUserRoleClient.IsRealmRoleAssignedAsync(resolvedSubject, VerifiedDeveloperRoleName, cancellationToken);
+        if (!verifiedRoleCheck.Succeeded)
+        {
+            return new(
+                VerifiedDeveloperRoleReadStatus.UpstreamFailure,
+                ErrorDetail: verifiedRoleCheck.ErrorDetail ?? "Keycloak verified-developer role lookup failed for the target user.");
+        }
+
+        return new(
+            VerifiedDeveloperRoleReadStatus.Success,
+            State: new VerifiedDeveloperRoleStateSnapshot(resolvedSubject, verifiedRoleCheck.IsAssigned, false));
+    }
+
     public async Task<VerifiedDeveloperRoleMutationResult> SetVerifiedDeveloperRoleAsync(
         IEnumerable<Claim> claims,
-        string developerSubject,
+        string developerIdentifier,
         bool verifiedDeveloper,
         CancellationToken cancellationToken = default)
     {
@@ -78,15 +127,16 @@ internal sealed class DeveloperEnrollmentService(
             return new(VerifiedDeveloperRoleMutationStatus.Forbidden);
         }
 
-        if (string.IsNullOrWhiteSpace(developerSubject))
+        if (string.IsNullOrWhiteSpace(developerIdentifier))
         {
             return new(VerifiedDeveloperRoleMutationStatus.NotFound);
         }
 
         await identityPersistenceService.EnsureCurrentUserProjectionAsync(claims, cancellationToken);
-        var normalizedSubject = developerSubject.Trim();
+        var normalizedIdentifier = developerIdentifier.Trim();
+        var resolvedSubject = await ResolveDeveloperSubjectAsync(normalizedIdentifier, cancellationToken);
 
-        var developerRoleCheck = await keycloakUserRoleClient.IsRealmRoleAssignedAsync(normalizedSubject, DeveloperRoleName, cancellationToken);
+        var developerRoleCheck = await keycloakUserRoleClient.IsRealmRoleAssignedAsync(resolvedSubject, DeveloperRoleName, cancellationToken);
         if (developerRoleCheck.UserNotFound || (developerRoleCheck.Succeeded && !developerRoleCheck.IsAssigned))
         {
             return new(VerifiedDeveloperRoleMutationStatus.NotFound);
@@ -100,8 +150,8 @@ internal sealed class DeveloperEnrollmentService(
         }
 
         var mutationResult = verifiedDeveloper
-            ? await keycloakUserRoleClient.EnsureRealmRoleAssignedAsync(normalizedSubject, VerifiedDeveloperRoleName, cancellationToken)
-            : await keycloakUserRoleClient.EnsureRealmRoleRemovedAsync(normalizedSubject, VerifiedDeveloperRoleName, cancellationToken);
+            ? await keycloakUserRoleClient.EnsureRealmRoleAssignedAsync(resolvedSubject, VerifiedDeveloperRoleName, cancellationToken)
+            : await keycloakUserRoleClient.EnsureRealmRoleRemovedAsync(resolvedSubject, VerifiedDeveloperRoleName, cancellationToken);
 
         if (mutationResult.UserNotFound)
         {
@@ -117,7 +167,7 @@ internal sealed class DeveloperEnrollmentService(
 
         return new(
             VerifiedDeveloperRoleMutationStatus.Success,
-            State: new VerifiedDeveloperRoleStateSnapshot(normalizedSubject, verifiedDeveloper, mutationResult.AlreadyInRequestedState));
+            State: new VerifiedDeveloperRoleStateSnapshot(resolvedSubject, verifiedDeveloper, mutationResult.AlreadyInRequestedState));
     }
 
     public async Task<bool> HasDeveloperAccessAsync(IEnumerable<Claim> claims, CancellationToken cancellationToken = default)
@@ -157,6 +207,23 @@ internal sealed class DeveloperEnrollmentService(
 
         return subject;
     }
+
+    private async Task<string> ResolveDeveloperSubjectAsync(string developerIdentifier, CancellationToken cancellationToken)
+    {
+        var normalizedIdentifier = developerIdentifier.Trim();
+        var normalizedIdentifierLower = normalizedIdentifier.ToLowerInvariant();
+        var matchedUser = await dbContext.Users
+            .AsNoTracking()
+            .Where(candidate =>
+                candidate.KeycloakSubject == normalizedIdentifier ||
+                (candidate.UserName != null && candidate.UserName.ToLower() == normalizedIdentifierLower))
+            .Select(candidate => candidate.KeycloakSubject)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return string.IsNullOrWhiteSpace(matchedUser)
+            ? normalizedIdentifier
+            : matchedUser;
+    }
 }
 
 internal static class DeveloperEnrollmentStatuses
@@ -192,6 +259,11 @@ internal sealed record VerifiedDeveloperRoleMutationResult(
     VerifiedDeveloperRoleStateSnapshot? State = null,
     string? ErrorDetail = null);
 
+internal sealed record VerifiedDeveloperRoleReadResult(
+    VerifiedDeveloperRoleReadStatus Status,
+    VerifiedDeveloperRoleStateSnapshot? State = null,
+    string? ErrorDetail = null);
+
 internal enum DeveloperEnrollmentMutationStatus
 {
     Success,
@@ -199,6 +271,14 @@ internal enum DeveloperEnrollmentMutationStatus
 }
 
 internal enum VerifiedDeveloperRoleMutationStatus
+{
+    Success,
+    Forbidden,
+    NotFound,
+    UpstreamFailure
+}
+
+internal enum VerifiedDeveloperRoleReadStatus
 {
     Success,
     Forbidden,
