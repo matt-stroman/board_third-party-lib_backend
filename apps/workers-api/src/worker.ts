@@ -1,5 +1,5 @@
 import { empty, json, ApiError, validationProblem } from "./http";
-import { Env, getMaintainedSurface, WorkerAppService } from "./service-boundary";
+import { Env, WorkerAppService } from "./service-boundary";
 
 function getBearerToken(request: Request): string {
   const header = request.headers.get("authorization") ?? request.headers.get("Authorization") ?? "";
@@ -26,7 +26,7 @@ export default {
       if (url.pathname === "/") {
         return json({
           service: "board-enthusiasts-workers-api",
-          phase: "wave-2-platform-api",
+          stack: "workers-supabase",
           environment: service.getContext().envName
         });
       }
@@ -37,10 +37,6 @@ export default {
 
       if (url.pathname === "/health/ready") {
         return json(await service.getReadyState());
-      }
-
-      if (url.pathname === "/_migration/surface") {
-        return json(getMaintainedSurface(service.getContext()));
       }
 
       if (request.method === "GET" && url.pathname === "/catalog") {

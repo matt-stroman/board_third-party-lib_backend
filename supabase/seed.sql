@@ -1,7 +1,7 @@
 insert into public.migration_wave_state(key, value)
 values
-    ('wave', 'wave-2'),
-    ('status', 'platform-api-ready')
+    ('stack', 'workers-supabase'),
+    ('status', 'configured')
 on conflict (key) do update
 set value = excluded.value,
     updated_at = now();

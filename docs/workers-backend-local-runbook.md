@@ -8,21 +8,22 @@ The maintained backend local stack is:
 From the root repository:
 
 ```bash
-python ./scripts/dev.py supabase start
-python ./scripts/dev.py supabase db-reset
-python ./scripts/dev.py workers run
+python ./scripts/dev.py database up
+python ./scripts/dev.py auth up
+python ./scripts/dev.py api
 ```
 
 Useful verification commands:
 
 ```bash
 python ./scripts/dev.py api-test --start-workers
-python ./scripts/dev.py contract-smoke --target migration --start-workers
+python ./scripts/dev.py contract-smoke --start-workers
 python ./scripts/dev.py workers-smoke --start-stack
 ```
 
 Notes:
 
-- `supabase db-reset` reseeds deterministic auth, relational, and storage fixtures.
-- `workers run` writes local Wrangler bindings into `apps/workers-api/.dev.vars` before launch.
+- `database up` starts PostgreSQL only.
+- `auth up` adds the local auth services needed for token and role testing.
+- `api` starts the maintained backend on top of the local database and auth runtime.
 - The shared TypeScript contract package lives in the root workspace, so the backend is expected to be run through the root CLI.

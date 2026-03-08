@@ -280,7 +280,7 @@ async function seedOnce(options: SeedOptions): Promise<void> {
   console.log("==> Creating or updating deterministic Supabase auth users");
   const authUsers = await ensureAuthUsers(client, options.password);
 
-  console.log("==> Resetting migration demo tables");
+  console.log("==> Resetting local demo tables");
   await resetDemoData(client);
 
   console.log("==> Seeding application users and role projections");
@@ -507,7 +507,7 @@ async function seed(): Promise<void> {
       }
 
       const message = error instanceof Error ? error.message : String(error);
-      console.warn(`Transient Supabase startup error during migration seed (attempt ${attempt}/${maxAttempts}): ${message}`);
+      console.warn(`Transient Supabase startup error during local seed (attempt ${attempt}/${maxAttempts}): ${message}`);
       await delay(2000);
     }
   }

@@ -1,7 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
-  localMigrationEnvironment,
-  maintainedApiRoutes,
   migrationMediaBucket,
   type CatalogPaging,
   type CatalogTitle,
@@ -280,11 +278,6 @@ export interface WorkerAppContext {
   supabaseMediaBucket: string;
 }
 
-export interface MaintainedSurfaceResponse {
-  environment: string;
-  maintainedApiRoutes: typeof maintainedApiRoutes;
-}
-
 interface AuthenticatedUser {
   appUser: AppUserRow;
   roles: PlatformRole[];
@@ -329,8 +322,8 @@ function parseContext(env: Env): WorkerAppContext {
   if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
     throw problem(
       503,
-      "migration_environment_incomplete",
-      "Migration environment is incomplete.",
+      "backend_environment_incomplete",
+      "Backend environment is incomplete.",
       "Supabase URL, anon key, and service role key must be configured for the Workers API."
     );
   }
@@ -340,14 +333,7 @@ function parseContext(env: Env): WorkerAppContext {
     supabaseUrl,
     supabaseAnonKey,
     supabaseServiceRoleKey,
-    supabaseMediaBucket: env.SUPABASE_MEDIA_BUCKET?.trim() || migrationMediaBucket || localMigrationEnvironment.supabaseMediaBucket
-  };
-}
-
-export function getMaintainedSurface(context: WorkerAppContext): MaintainedSurfaceResponse {
-  return {
-    environment: context.envName,
-    maintainedApiRoutes
+    supabaseMediaBucket: env.SUPABASE_MEDIA_BUCKET?.trim() || migrationMediaBucket
   };
 }
 
@@ -368,18 +354,17 @@ export class WorkerAppService {
     const { data, error } = await this.client
       .from("migration_wave_state")
       .select("key, value")
-      .in("key", ["wave", "status"]);
+      .eq("key", "status");
 
     if (error) {
-      throw problem(503, "migration_supabase_unavailable", "Supabase is not ready.", error.message);
+      throw problem(503, "supabase_unavailable", "Supabase is not ready.", error.message);
     }
 
-    const waveState = new Map((data as WaveStateRow[]).map((row) => [row.key, row.value]));
+    const readinessState = new Map((data as WaveStateRow[]).map((row) => [row.key, row.value]));
     return {
       status: "ready",
       environment: this.context.envName,
-      wave: waveState.get("wave") ?? "unknown",
-      phaseStatus: waveState.get("status") ?? "unknown",
+      stackStatus: readinessState.get("status") ?? "unknown",
       supabaseUrlConfigured: true,
       mediaBucket: this.context.supabaseMediaBucket
     };
