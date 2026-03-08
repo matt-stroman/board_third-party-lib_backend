@@ -2,13 +2,9 @@
 
 ## Coding Standard
 
-- Implement new external API behavior contract-first and TDD-first: OpenAPI/Postman coverage first, failing backend tests second, production code last.
-- Keep the maintained backend behavior aligned with the current implemented contract; do not leave future-only endpoints partially represented in docs/tests if persistence and implementation are deferred.
-- Keycloak owns authentication lifecycle behavior and brokered SSO provider linkage. PostgreSQL should only own application data and local projections keyed to Keycloak subjects.
-- Use HTTP/2 as the default for all backend HTTP traffic that we control: outbound `HttpClient` calls from the API, automated tests targeting the API, and local tooling probes. If compatibility requires accepting HTTP/1.1 on Kestrel, keep HTTP/2 as the explicit caller default and document the exception.
-- Every existing and new web API endpoint must have thorough unit test(s) to cover the endpoint's typical and edge cases.
-- If code is found that is not covered, write applicable unit tests to cover it.
+- Implement maintained external API behavior contract-first and test-first: OpenAPI/Postman assets first, backend verification second, implementation last.
+- Keep the maintained backend aligned only to the current Workers + Supabase surface. Do not leave legacy-only ASP.NET or Keycloak behavior represented as if it is still active.
+- Supabase Auth owns the maintained authentication lifecycle for this backend. Application tables should own only application data and local projections keyed to Supabase auth user identifiers.
+- Prefer narrow service boundaries so Cloudflare request handlers stay thin and backend logic remains testable in isolation.
+- New backend-only scripts, config, docs, and deployment templates belong in this submodule. Shared or cross-repository concerns belong in the root repository.
 - Work from a branch, commit the completed change set, push it, and open or update a PR.
-- Wait for the relevant GitHub workflow runs, inspect failures, and push fixes until the branch is green.
-- Merge to `main` only after the required checks pass.
-- After the PR is merged, delete the merged branch locally and remotely, prune stale remote refs, and leave the repository on a clean `main` tracking `origin/main`.

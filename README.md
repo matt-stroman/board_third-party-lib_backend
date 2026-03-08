@@ -1,107 +1,38 @@
 # board-enthusiasts_backend
 
-A backend service for third party developers for the Board ecosystem to use to register and share their games with the public.
+Maintained backend implementation for Board Enthusiasts.
 
-Current implementation status:
+The legacy ASP.NET, Keycloak, local PostgreSQL, and Mailpit runtime has been removed from this submodule. The maintained backend now consists of:
 
-- implemented now: health endpoints, Keycloak-backed identity/auth foundation, self-service developer enrollment plus moderator role management, user profile and avatar management endpoints, Waves 1 through 5 title/catalog/acquisition persistence, Wave 6 access moderation, Wave 7 workspace-shell realignment, and Wave 8 player library, wishlist, title-report, and in-app notification workflows
-- planned next: Wave 9 unified commerce and entitlements
+- Cloudflare Workers API in [`apps/workers-api`](./apps/workers-api)
+- Supabase schema and local project config in [`supabase`](./supabase)
+- backend-owned seed tooling in [`scripts/migration-seed.ts`](./scripts/migration-seed.ts)
+- backend-owned deployment template in [`cloudflare/workers/wrangler.template.jsonc`](./cloudflare/workers/wrangler.template.jsonc)
 
-## Table of Contents
+## Local Workflow
 
-- [Local development (Phase 2)](#local-development-phase-2)
-- [Planning](#planning)
-- [API Testing (Postman)](#api-testing-postman)
-
-## Local development (Phase 2)
-
-Prereq: local PostgreSQL, Mailpit, and Keycloak running (see [`backend/docker-compose.yml`](docker-compose.yml)).
-
-Recommended (repo root, automated):
+Run the backend from the root repository so the shared workspace package and root CLI stay in control:
 
 ```bash
-python ./scripts/dev.py bootstrap
-python ./scripts/dev.py up
+python ./scripts/dev.py supabase start
+python ./scripts/dev.py supabase db-reset
+python ./scripts/dev.py workers run
+python ./scripts/dev.py api-test --start-workers
+python ./scripts/dev.py workers-smoke --start-stack
 ```
 
-Backend-only test commands (repo root, automated):
+The root CLI is the supported developer entrypoint:
 
-```bash
-python ./scripts/dev.py verify --skip-contract-tests
-python ./scripts/dev.py test
-python ./scripts/dev.py test --skip-integration
-```
-
-See the root developer CLI doc for full command help and DB backup/restore helpers:
-
+- [`scripts/dev.py`](../scripts/dev.py)
 - [`docs/developer-cli.md`](../docs/developer-cli.md)
+- [`docs/cloudflare-supabase-workers-wave-2.md`](../docs/cloudflare-supabase-workers-wave-2.md)
 
-Run the API:
+## Repository Boundary
 
-```bash
-dotnet restore
-dotnet run --project src/Board.ThirdPartyLibrary.Api
-```
+This submodule owns backend-only runtime concerns for the maintained stack:
 
-Verify endpoints:
+- Workers request handling and backend service logic
+- Supabase migrations, seeds, and local provider config
+- backend deployment templates and backend-only docs
 
-```bash
-Invoke-WebRequest -SkipCertificateCheck -HttpVersion 2.0 https://localhost:7085/health/live
-Invoke-WebRequest -SkipCertificateCheck -HttpVersion 2.0 https://localhost:7085/health/ready
-Invoke-WebRequest -SkipCertificateCheck -HttpVersion 2.0 https://localhost:7085/identity/auth/config
-Invoke-WebRequest -SkipCertificateCheck -HttpVersion 2.0 https://localhost:7085/studios
-Invoke-WebRequest -SkipCertificateCheck -HttpVersion 2.0 https://localhost:7085/catalog
-```
-
-Notes:
-
-- `appsettings.Development.json` is preconfigured for the local Postgres container with TLS enabled and the local Keycloak realm import.
-- Override with env var `ConnectionStrings__BoardLibrary` if needed.
-- Override Keycloak settings with `Authentication__Keycloak__*` environment variables if needed.
-- Title media uploads (`POST /developer/titles/{titleId}/media/{mediaRole}/upload`) use local filesystem storage by default at `artifacts/title-media` and are served publicly under `/uploads/title-media/*`.
-- Upload validation currently allows JPEG/PNG/WEBP/GIF up to 25 MB per file.
-- Override storage root with `TitleMediaStorage__RootPath` when needed.
-- Authentication data ownership is documented in [`backend/docs/auth-data-ownership.md`](docs/auth-data-ownership.md).
-- Current catalog/title schema behavior is documented in [`backend/docs/title-catalog-schema.md`](docs/title-catalog-schema.md).
-- Local developer enrollment is self-service. Players can enable the `developer` realm role directly, while moderators can grant or revoke `verified_developer` for existing developer accounts.
-- New user registration defaults to the `player` role through Keycloak default roles, and authenticated projection sync now backfills `player` when older accounts are missing it.
-
-Local Keycloak bootstrap defaults:
-
-- Keycloak admin console: [`https://localhost:8443/admin/`](https://localhost:8443/admin/)
-- Keycloak bootstrap admin: `admin` / `admin`
-- Seeded realm user for login testing: `local-admin` / `ChangeMe!123`
-- Local verification email inbox: [`https://localhost:8025`](https://localhost:8025)
-
-To verify the browser login flow locally, open:
-
-```bash
-https://localhost:7085/identity/auth/login
-```
-
-Keycloak will host the login/registration UI and redirect back to:
-
-```bash
-https://localhost:7085/identity/auth/callback
-```
-
-## Planning
-
-Backend schema implementation is planned as EF Core code-first with migrations as the database schema source of truth.
-
-Authentication and platform-role state are intentionally excluded from the application database source of truth and remain Keycloak-owned.
-
-See:
-
-- [`backend/planning/mvp-schema-implementation-plan.md`](planning/mvp-schema-implementation-plan.md)
-- [`planning/current-state-and-wave-plan.md`](../planning/current-state-and-wave-plan.md)
-- [`backend/docs/title-catalog-schema.md`](docs/title-catalog-schema.md)
-
-## API Testing (Postman)
-
-The maintained contract-test and environment assets now live in the `api` submodule and are executed through the root developer CLI.
-
-See:
-
-- [`api/README.md`](../api/README.md)
-- [`backend/docs/postman-api-testing.md`](docs/postman-api-testing.md)
+Historical planning artifacts remain under [`planning`](./planning). They are retained for traceability and are not the source of truth for the maintained backend runtime.

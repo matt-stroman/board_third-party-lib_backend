@@ -1,33 +1,21 @@
-# Build outputs
-bin/
-obj/
-artifacts/
-TestResults/
+# Node/npm workspace artifacts
+node_modules/
+apps/*/node_modules/
+apps/*/dist/
+*.tsbuildinfo
 
-# .NET user/IDE files
-.vs/
-.vscode/
-*.user
-*.suo
-*.userosscache
-*.sln.docstates
+# Wrangler and Supabase local runtime state
+apps/workers-api/.dev.vars
+apps/workers-api/.wrangler/
+supabase/.branches/
+supabase/.temp/
 
-# JetBrains Rider/ReSharper
-.idea/
-_ReSharper*/
-*.DotSettings.user
-
-# Logs
+# Logs and scratch files
 *.log
 logs/
+.tmp/
 
-# Local environment/secrets (keep examples committed)
+# Local environment/secrets
 .env
 .env.*
 !.env.example
-
-# Optional local appsettings overrides
-appsettings.Local.json
-appsettings.*.Local.json
-appsettings.local.json
-appsettings.*.local.json
