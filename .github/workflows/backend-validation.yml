@@ -25,6 +25,9 @@ jobs:
     timeout-minutes: 35
 
     steps:
+      - name: Checkout backend PR branch
+        uses: actions/checkout@v4
+
       - name: Determine root repo ref
         id: root_ref
         run: |
@@ -42,21 +45,15 @@ jobs:
             fi
           fi
 
-      - name: Checkout root workspace
-        uses: actions/checkout@v4
-        with:
-          repository: matt-stroman/board-enthusiasts
-          ref: ${{ steps.root_ref.outputs.root_ref }}
-          submodules: recursive
-
-      - name: Pin backend submodule to PR commit
-        env:
-          SUBMODULE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          SUBMODULE_REPO: ${{ github.repository }}
+      - name: Clone root workspace
         run: |
-          git -C backend fetch --depth=1 "https://github.com/${SUBMODULE_REPO}.git" "${SUBMODULE_SHA}"
-          git -C backend checkout --detach FETCH_HEAD
-          git submodule status --recursive
+          git clone --depth 1 --branch "${{ steps.root_ref.outputs.root_ref }}" --recurse-submodules https://github.com/matt-stroman/board-enthusiasts.git root-workspace
+
+      - name: Overlay backend PR contents into root workspace
+        run: |
+          rm -rf root-workspace/backend
+          mkdir -p root-workspace/backend
+          rsync -a --delete --exclude '.git/' ./ root-workspace/backend/
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -69,13 +66,17 @@ jobs:
           node-version: "22"
 
       - name: Run maintained workspace typecheck
-        run: npm run typecheck:migration
+        working-directory: root-workspace
+        run: npm ci && npm run typecheck:migration
 
       - name: Run Workers smoke coverage
+        working-directory: root-workspace
         run: python ./scripts/dev.py workers-smoke --start-stack
 
       - name: Run contract smoke coverage
+        working-directory: root-workspace
         run: python ./scripts/dev.py contract-smoke --start-workers
 
       - name: Run Workers staging dry run
+        working-directory: root-workspace
         run: python ./scripts/dev.py deploy-staging --dry-run --workers-only
