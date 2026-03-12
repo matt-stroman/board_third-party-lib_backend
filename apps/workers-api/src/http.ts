@@ -11,12 +11,24 @@ export class ApiError extends Error {
   }
 }
 
+export function corsHeaders(origin?: string | null): HeadersInit {
+  const allowOrigin = origin && origin.trim().length > 0 ? origin : "*";
+  return {
+    "access-control-allow-origin": allowOrigin,
+    "access-control-allow-methods": "GET,POST,PUT,DELETE,OPTIONS",
+    "access-control-allow-headers": "authorization,content-type,accept",
+    "access-control-max-age": "86400",
+    vary: "Origin"
+  };
+}
+
 export function json(data: unknown, init?: ResponseInit): Response {
   return new Response(JSON.stringify(data, null, 2), {
+    ...init,
     headers: {
-      "content-type": "application/json; charset=utf-8"
-    },
-    ...init
+      "content-type": "application/json; charset=utf-8",
+      ...(init?.headers ?? {})
+    }
   });
 }
 

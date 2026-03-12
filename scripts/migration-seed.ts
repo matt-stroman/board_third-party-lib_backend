@@ -26,6 +26,22 @@ interface AuthUserRecord {
   email: string;
 }
 
+function formatErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  try {
+    return JSON.stringify(error, null, 2);
+  } catch {
+    return String(error);
+  }
+}
+
 function parseArgs(argv: string[]): ParsedArgs {
   const parsed: ParsedArgs = {};
 
@@ -149,27 +165,52 @@ async function ensureBucket(client: SupabaseClient, bucket: string): Promise<voi
 }
 
 async function waitForSupabaseReady(client: SupabaseClient): Promise<void> {
-  const timeoutAt = Date.now() + 120_000;
+  const timeoutAt = Date.now() + 180_000;
   let lastError = "Supabase HTTP services are still starting.";
+  const supabaseUrl = client.supabaseUrl.replace(/\/$/, "");
+  const serviceRoleKey = client.supabaseKey;
+
+  async function probe(url: string, headers: Record<string, string> = {}): Promise<string | null> {
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        headers,
+        signal: AbortSignal.timeout(10_000)
+      });
+      if (response.ok) {
+        return null;
+      }
+
+      const detail = (await response.text()).trim();
+      return `HTTP ${response.status}${detail ? `: ${detail}` : ""}`;
+    } catch (error: unknown) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  }
 
   while (Date.now() < timeoutAt) {
-    try {
-      const [{ error: bucketError }, { error: authError }, { error: restError }] = await Promise.all([
-        client.storage.listBuckets(),
-        client.auth.admin.listUsers({ page: 1, perPage: 1 }),
-        client.from("migration_wave_state").select("key").limit(1)
-      ]);
+    const sharedHeaders = {
+      apikey: serviceRoleKey,
+      authorization: `Bearer ${serviceRoleKey}`,
+      accept: "application/json"
+    };
+    const [authError, restError, storageError] = await Promise.all([
+      probe(`${supabaseUrl}/auth/v1/health`),
+      probe(`${supabaseUrl}/rest/v1/migration_wave_state?select=key&limit=1`, sharedHeaders),
+      probe(`${supabaseUrl}/storage/v1/bucket`, sharedHeaders)
+    ]);
 
-      if (!bucketError && !authError && !restError) {
-        return;
-      }
+    if (!authError && !restError && !storageError) {
+      return;
+    }
 
-      const details = [bucketError?.message, authError?.message, restError?.message].filter(Boolean);
-      if (details.length > 0) {
-        lastError = details.join(" | ");
-      }
-    } catch (error: unknown) {
-      lastError = error instanceof Error ? error.message : String(error);
+    const details = [
+      authError ? `auth: ${authError}` : null,
+      restError ? `rest: ${restError}` : null,
+      storageError ? `storage: ${storageError}` : null
+    ].filter(Boolean);
+    if (details.length > 0) {
+      lastError = details.join(" | ");
     }
 
     await delay(2000);
@@ -420,6 +461,10 @@ async function seedOnce(options: SeedOptions): Promise<void> {
   console.log("==> Uploading title media and seeding public catalog rows");
   const titleRows: Array<Record<string, unknown>> = [];
   const mediaRows: Array<Record<string, unknown>> = [];
+  const metadataVersionRows: Array<Record<string, unknown>> = [];
+  const metadataVersionGenreRows: Array<Record<string, unknown>> = [];
+  const releaseRows: Array<Record<string, unknown>> = [];
+  const titleIdsBySlug = new Map<string, string>();
   for (const title of migrationSeedTitles) {
     const studioId = studiosBySlug.get(title.studioSlug);
     if (!studioId) {
@@ -427,6 +472,8 @@ async function seedOnce(options: SeedOptions): Promise<void> {
     }
 
     const titleId = crypto.randomUUID();
+    titleIdsBySlug.set(title.slug, titleId);
+    const currentReleaseId = title.currentReleaseVersion ? crypto.randomUUID() : null;
     for (const media of title.media) {
       const uploaded = await uploadAsset(
         client,
@@ -448,6 +495,66 @@ async function seedOnce(options: SeedOptions): Promise<void> {
       });
     }
 
+    for (let revisionNumber = 1; revisionNumber <= title.currentMetadataRevision; revisionNumber += 1) {
+      const isCurrent = revisionNumber === title.currentMetadataRevision;
+      metadataVersionRows.push({
+        title_id: titleId,
+        revision_number: revisionNumber,
+        is_current: isCurrent,
+        is_frozen: Boolean(title.currentReleaseVersion) && isCurrent,
+        display_name: revisionNumber === 1 && title.currentMetadataRevision > 1 ? `${title.displayName} Prototype` : title.displayName,
+        short_description:
+          revisionNumber === 1 && title.currentMetadataRevision > 1
+            ? `${title.shortDescription} Prototype notes.`
+            : title.shortDescription,
+        description:
+          revisionNumber === 1 && title.currentMetadataRevision > 1
+            ? `${title.description}\n\nPrototype revision preserved for parity testing.`
+            : title.description,
+        genre_display: title.genreDisplay,
+        min_players: title.minPlayers,
+        max_players: title.maxPlayers,
+        age_rating_authority: title.ageRatingAuthority,
+        age_rating_value: title.ageRatingValue,
+        min_age_years: title.minAgeYears
+      });
+      metadataVersionGenreRows.push(
+        ...title.genreSlugs.map((genreSlug, index) => ({
+          title_id: titleId,
+          revision_number: revisionNumber,
+          genre_slug: genreSlug,
+          display_order: index
+        }))
+      );
+    }
+
+    if (title.currentReleaseVersion && currentReleaseId) {
+      releaseRows.push({
+        id: currentReleaseId,
+        title_id: titleId,
+        version: title.currentReleaseVersion,
+        status: "published",
+        metadata_revision_number: title.currentMetadataRevision,
+        acquisition_url: title.acquisition?.url ?? null,
+        is_current: true,
+        published_at: title.currentReleasePublishedAt ?? null
+      });
+    }
+
+    if (title.slug === "compass-echo") {
+      const draftReleaseId = crypto.randomUUID();
+      releaseRows.push({
+        id: draftReleaseId,
+        title_id: titleId,
+        version: "1.0.0-rc1",
+        status: "draft",
+        metadata_revision_number: title.currentMetadataRevision,
+        acquisition_url: "https://blue-harbor-games.example/titles/compass-echo/rc1",
+        is_current: false,
+        published_at: null
+      });
+    }
+
     titleRows.push({
       id: titleId,
       studio_id: studioId,
@@ -466,13 +573,10 @@ async function seedOnce(options: SeedOptions): Promise<void> {
       age_rating_authority: title.ageRatingAuthority,
       age_rating_value: title.ageRatingValue,
       min_age_years: title.minAgeYears,
-      current_release_id: title.currentReleaseVersion ? crypto.randomUUID() : null,
+      current_release_id: currentReleaseId,
       current_release_version: title.currentReleaseVersion ?? null,
       current_release_published_at: title.currentReleasePublishedAt ?? null,
-      acquisition_url: title.acquisition?.url ?? null,
-      acquisition_label: title.acquisition?.label ?? null,
-      acquisition_provider_display_name: title.acquisition?.providerDisplayName ?? null,
-      acquisition_provider_homepage_url: title.acquisition?.providerHomepageUrl ?? null
+      acquisition_url: title.acquisition?.url ?? null
     });
   }
 
@@ -480,9 +584,203 @@ async function seedOnce(options: SeedOptions): Promise<void> {
   if (titleInsertError) {
     throw titleInsertError;
   }
+  const { error: metadataVersionInsertError } = await client.from("title_metadata_versions").insert(metadataVersionRows);
+  if (metadataVersionInsertError) {
+    throw metadataVersionInsertError;
+  }
+  const { error: metadataVersionGenreInsertError } = await client.from("title_metadata_version_genres").insert(metadataVersionGenreRows);
+  if (metadataVersionGenreInsertError) {
+    throw metadataVersionGenreInsertError;
+  }
+  const { error: releaseInsertError } = await client.from("title_releases").insert(releaseRows);
+  if (releaseInsertError) {
+    throw releaseInsertError;
+  }
   const { error: mediaInsertError } = await client.from("title_media_assets").insert(mediaRows);
   if (mediaInsertError) {
     throw mediaInsertError;
+  }
+  const avaUserId = appUsersByUserName.get("ava.garcia");
+  const alexUserId = appUsersByUserName.get("alex.rivera");
+  const emmaUserId = appUsersByUserName.get("emma.torres");
+  const lanternDriftTitleId = titleIdsBySlug.get("lantern-drift");
+  const compassEchoTitleId = titleIdsBySlug.get("compass-echo");
+  const orbitOrchardTitleId = titleIdsBySlug.get("orbit-orchard");
+
+  console.log("==> Seeding player collections and title reports");
+  if (avaUserId && lanternDriftTitleId) {
+    const { error: libraryError } = await client.from("player_library_titles").insert({
+      user_id: avaUserId,
+      title_id: lanternDriftTitleId
+    });
+    if (libraryError) {
+      throw libraryError;
+    }
+  }
+
+  if (avaUserId && compassEchoTitleId) {
+    const { error: wishlistError } = await client.from("player_wishlist_titles").insert({
+      user_id: avaUserId,
+      title_id: compassEchoTitleId
+    });
+    if (wishlistError) {
+      throw wishlistError;
+    }
+  }
+
+  if (avaUserId && orbitOrchardTitleId && alexUserId && emmaUserId) {
+    const reportId = crypto.randomUUID();
+    const createdAt = "2026-03-08T10:15:00Z";
+    const updatedAt = "2026-03-08T11:00:00Z";
+
+    const { error: reportError } = await client.from("title_reports").insert({
+      id: reportId,
+      title_id: orbitOrchardTitleId,
+      reporter_user_id: avaUserId,
+      status: "needs_player_response",
+      reason: "The current title listing still shows placeholder acquisition details and missing release notes.",
+      resolution_note: null,
+      resolved_by_user_id: null,
+      resolved_at: null,
+      created_at: createdAt,
+      updated_at: updatedAt
+    });
+    if (reportError) {
+      throw reportError;
+    }
+
+    const { error: reportMessageError } = await client.from("title_report_messages").insert([
+      {
+        report_id: reportId,
+        author_user_id: avaUserId,
+        author_role: "player",
+        audience: "all",
+        message: "The title page says the release is ready, but the acquisition page still points at placeholder information.",
+        created_at: createdAt
+      },
+      {
+        report_id: reportId,
+        author_user_id: alexUserId,
+        author_role: "moderator",
+        audience: "player",
+        message: "Thanks. Can you confirm whether this happens on the current published listing and not just the testing build?",
+        created_at: updatedAt
+      }
+    ]);
+    if (reportMessageError) {
+      throw reportMessageError;
+    }
+
+    const { error: notificationError } = await client.from("user_notifications").insert([
+      {
+        user_id: alexUserId,
+        category: "title_report",
+        title: "New title report submitted",
+        body: "Ava Garcia reported Orbit Orchard. The current title listing still shows placeholder acquisition details and missing release notes.",
+        action_url: `/moderate?workflow=reports-review&reportId=${reportId}`,
+        is_read: false,
+        read_at: null,
+        created_at: createdAt,
+        updated_at: createdAt
+      },
+      {
+        user_id: emmaUserId,
+        category: "title_report",
+        title: "Moderator follow-up for your title",
+        body: "Alex Rivera sent an update about Orbit Orchard. Review the report thread and respond from Develop.",
+        action_url: `/develop?domain=titles&workflow=titles-reports&titleId=${orbitOrchardTitleId}&reportId=${reportId}`,
+        is_read: false,
+        read_at: null,
+        created_at: updatedAt,
+        updated_at: updatedAt
+      },
+      {
+        user_id: avaUserId,
+        category: "title_report",
+        title: "Moderator follow-up on your report",
+        body: "Alex Rivera asked for more detail about Orbit Orchard. Open the report thread in Play.",
+        action_url: `/player?workflow=reported-titles&reportId=${reportId}`,
+        is_read: false,
+        read_at: null,
+        created_at: updatedAt,
+        updated_at: updatedAt
+      }
+    ]);
+    if (notificationError) {
+      throw notificationError;
+    }
+  }
+
+  if (avaUserId && compassEchoTitleId && alexUserId && emmaUserId) {
+    const reportId = crypto.randomUUID();
+    const createdAt = "2026-03-08T09:10:00Z";
+    const updatedAt = "2026-03-08T10:05:00Z";
+
+    const { error: reportError } = await client.from("title_reports").insert({
+      id: reportId,
+      title_id: compassEchoTitleId,
+      reporter_user_id: avaUserId,
+      status: "needs_developer_response",
+      reason: "The install guidance references a companion feature that is not visible in the current testing build.",
+      resolution_note: null,
+      resolved_by_user_id: null,
+      resolved_at: null,
+      created_at: createdAt,
+      updated_at: updatedAt
+    });
+    if (reportError) {
+      throw reportError;
+    }
+
+    const { error: reportMessageError } = await client.from("title_report_messages").insert([
+      {
+        report_id: reportId,
+        author_user_id: avaUserId,
+        author_role: "player",
+        audience: "all",
+        message: "I expected to see the synced clue board mentioned in the listing, but I cannot find it.",
+        created_at: createdAt
+      },
+      {
+        report_id: reportId,
+        author_user_id: alexUserId,
+        author_role: "moderator",
+        audience: "developer",
+        message: "Please confirm whether this feature is intentionally hidden in testing or if the listing needs an update.",
+        created_at: updatedAt
+      }
+    ]);
+    if (reportMessageError) {
+      throw reportMessageError;
+    }
+
+    const { error: notificationError } = await client.from("user_notifications").insert([
+      {
+        user_id: alexUserId,
+        category: "title_report",
+        title: "New title report submitted",
+        body: "Ava Garcia reported Compass Echo. The install guidance references a companion feature that is not visible in the current testing build.",
+        action_url: `/moderate?workflow=reports-review&reportId=${reportId}`,
+        is_read: false,
+        read_at: null,
+        created_at: createdAt,
+        updated_at: createdAt
+      },
+      {
+        user_id: emmaUserId,
+        category: "title_report",
+        title: "Moderator follow-up for your title",
+        body: "Alex Rivera sent an update about Compass Echo. Open the developer report thread for the latest moderator note.",
+        action_url: `/develop?domain=titles&workflow=titles-reports&titleId=${compassEchoTitleId}&reportId=${reportId}`,
+        is_read: false,
+        read_at: null,
+        created_at: updatedAt,
+        updated_at: updatedAt
+      }
+    ]);
+    if (notificationError) {
+      throw notificationError;
+    }
   }
 
   console.log("==> Migration seed complete");
@@ -514,7 +812,7 @@ async function seed(): Promise<void> {
 }
 
 seed().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = formatErrorMessage(error);
   console.error(message);
   process.exitCode = 1;
 });

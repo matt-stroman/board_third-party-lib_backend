@@ -1,0 +1,82 @@
+name: Backend Validation
+
+on:
+  push:
+    branches:
+      - main
+      - feat/cloudflare-supabase-workers-stack-audit
+      - feat/cloudflare-supabase-workers-stack-audit-wave-wrapup
+  pull_request:
+    branches:
+      - main
+      - feat/cloudflare-supabase-workers-stack-audit
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate Backend In Root Workspace
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout backend PR branch
+        uses: actions/checkout@v4
+
+      - name: Determine root repo ref
+        id: root_ref
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            if [ "${{ github.base_ref }}" = "main" ]; then
+              echo "root_ref=main" >> "$GITHUB_OUTPUT"
+            else
+              echo "root_ref=feat/cloudflare-supabase-workers-conversion-wave-3-frontend-cutover" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            if [ "${{ github.ref_name }}" = "main" ]; then
+              echo "root_ref=main" >> "$GITHUB_OUTPUT"
+            else
+              echo "root_ref=feat/cloudflare-supabase-workers-conversion-wave-3-frontend-cutover" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Clone root workspace
+        run: |
+          git clone --depth 1 --branch "${{ steps.root_ref.outputs.root_ref }}" --recurse-submodules https://github.com/matt-stroman/board-enthusiasts.git root-workspace
+
+      - name: Overlay backend PR contents into root workspace
+        run: |
+          rm -rf root-workspace/backend
+          mkdir -p root-workspace/backend
+          rsync -a --delete --exclude '.git/' ./ root-workspace/backend/
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run maintained workspace typecheck
+        working-directory: root-workspace
+        run: npm ci && npm run typecheck:migration
+
+      - name: Run Workers smoke coverage
+        working-directory: root-workspace
+        run: python ./scripts/dev.py workers-smoke --start-stack
+
+      - name: Run contract smoke coverage
+        working-directory: root-workspace
+        run: python ./scripts/dev.py contract-smoke --start-workers
+
+      - name: Run Workers staging dry run
+        working-directory: root-workspace
+        run: python ./scripts/dev.py deploy-staging --dry-run --workers-only

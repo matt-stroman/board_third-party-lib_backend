@@ -20,6 +20,8 @@ api_url = "http://127.0.0.1"
 [inbucket]
 enabled = true
 port = 54324
+admin_email = "noreply@boardenthusiasts.com"
+sender_name = "Board Enthusiasts"
 
 [storage]
 enabled = true
@@ -30,7 +32,14 @@ enabled = true
 site_url = "http://127.0.0.1:4173"
 additional_redirect_urls = [
   "http://127.0.0.1:4173",
-  "https://staging.boardenthusiasts.com"
+  "http://127.0.0.1:4173/auth/signin",
+  "http://127.0.0.1:4173/auth/signin?mode=recovery",
+  "http://localhost:4173",
+  "http://localhost:4173/auth/signin",
+  "http://localhost:4173/auth/signin?mode=recovery",
+  "https://staging.boardenthusiasts.com",
+  "https://staging.boardenthusiasts.com/auth/signin",
+  "https://staging.boardenthusiasts.com/auth/signin?mode=recovery"
 ]
 jwt_expiry = 3600
 enable_signup = true
@@ -39,6 +48,30 @@ enable_signup = true
 enable_signup = true
 double_confirm_changes = true
 enable_confirmations = true
+
+[auth.email.template.confirmation]
+subject = "Welcome to Board Enthusiasts"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.recovery]
+subject = "Reset your Board Enthusiasts password"
+content_path = "./supabase/templates/recovery.html"
+
+[auth.email.template.magic_link]
+subject = "Your Board Enthusiasts sign-in link"
+content_path = "./supabase/templates/magic-link.html"
+
+[auth.email.template.invite]
+subject = "You're invited to Board Enthusiasts"
+content_path = "./supabase/templates/invite.html"
+
+[auth.email.template.email_change]
+subject = "Confirm your Board Enthusiasts email change"
+content_path = "./supabase/templates/email-change.html"
+
+[auth.email.template.reauthentication]
+subject = "Confirm it's you on Board Enthusiasts"
+content_path = "./supabase/templates/reauthentication.html"
 
 [auth.external.github]
 enabled = false
