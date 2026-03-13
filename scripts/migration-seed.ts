@@ -275,6 +275,10 @@ function getTitleMediaBucket(options: SeedOptions, mediaRole: "card" | "hero" | 
   }
 }
 
+function bucketSupportsMimeType(bucketPolicy: { acceptedMimeTypes: readonly string[] }, mimeType: string): boolean {
+  return bucketPolicy.acceptedMimeTypes.includes(mimeType);
+}
+
 async function ensureAuthUsers(client: SupabaseClient, password: string): Promise<Map<string, AuthUserRecord>> {
   const { data, error } = await client.auth.admin.listUsers();
   if (error) {
@@ -443,21 +447,27 @@ async function seedOnce(options: SeedOptions): Promise<void> {
       `studios/${studio.slug}/banner${path.extname(studio.bannerAssetPath).toLowerCase()}`,
       "image/svg+xml"
     );
-    const uploadedAvatar = await uploadAsset(
-      client,
-      options.avatarsBucket,
-      options.assetRoot,
-      studio.avatarAssetPath,
-      `studios/${studio.slug}/avatar${path.extname(studio.avatarAssetPath).toLowerCase()}`,
-      "image/svg+xml"
-    );
+    const studioAvatarMimeType = parseMimeType(studio.avatarAssetPath, "image/png");
+    const studioAvatarStoragePath = `studios/${studio.slug}/avatar${path.extname(studio.avatarAssetPath).toLowerCase()}`;
+    const uploadedAvatar = bucketSupportsMimeType(migrationMediaUploadPolicies.avatars, studioAvatarMimeType)
+      ? await uploadAsset(
+          client,
+          options.avatarsBucket,
+          options.assetRoot,
+          studio.avatarAssetPath,
+          studioAvatarStoragePath,
+          studioAvatarMimeType
+        )
+      : null;
 
     studioRows.push({
       slug: studio.slug,
       display_name: studio.displayName,
       description: studio.description,
-      avatar_url: uploadedAvatar.publicUrl,
-      avatar_storage_path: uploadedAvatar.storagePath,
+      // Seed catalog studio avatars fall back to the uploaded logo when the source art is
+      // vector-only and the avatar bucket policy intentionally rejects SVG uploads.
+      avatar_url: uploadedAvatar?.publicUrl ?? uploadedLogo.publicUrl,
+      avatar_storage_path: uploadedAvatar?.storagePath ?? null,
       logo_url: uploadedLogo.publicUrl,
       logo_storage_path: uploadedLogo.storagePath,
       banner_url: uploadedBanner.publicUrl,
