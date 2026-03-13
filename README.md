@@ -40,12 +40,15 @@ The supported environment files are root-managed under [`../config`](../config):
 For the hosted backend, the important runtime values are:
 
 - `SUPABASE_URL`
+- `SUPABASE_PROJECT_REF`
 - `SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SECRET_KEY`
 - `SUPABASE_MEDIA_BUCKET`
 - `TURNSTILE_SECRET_KEY`
 - `BREVO_API_KEY`
 - `BREVO_SIGNUPS_LIST_ID`
+
+For the default hosted Supabase domain, the root CLI can infer `SUPABASE_URL` from `SUPABASE_PROJECT_REF`. Keep `SUPABASE_URL` explicit for local development and any custom-domain setup.
 
 Use the root CLI to inspect or bootstrap the root-managed files:
 
