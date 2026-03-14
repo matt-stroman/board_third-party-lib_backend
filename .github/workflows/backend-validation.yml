@@ -164,6 +164,7 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ci-dry-run-account
           CLOUDFLARE_API_TOKEN: ci-dry-run-token
+          BOARD_ENTHUSIASTS_WORKERS_BASE_URL: https://api.staging.boardenthusiasts.com
           SUPABASE_URL: https://example-project.supabase.co
           SUPABASE_PUBLISHABLE_KEY: ci-dry-run-publishable-key
           SUPABASE_SECRET_KEY: ci-dry-run-secret-key

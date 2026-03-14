@@ -141,7 +141,13 @@ export async function handleSupportIssueRoute(
   responseHeaders: HeadersInit
 ): Promise<Response> {
   assertAllowedSupportIssueOrigin(request, service.getContext());
-  return json(await service.reportSupportIssue(await readJson<SupportIssueReportRequest>(request)), {
+  const deploySmokeSecret = request.headers.get(deploySmokeSecretHeader)?.trim() ?? "";
+  const isDeploySmoke =
+    Boolean(deploySmokeSecret) &&
+    Boolean(service.getContext().deploySmokeSecret) &&
+    deploySmokeSecret === service.getContext().deploySmokeSecret;
+
+  return json(await service.reportSupportIssue(await readJson<SupportIssueReportRequest>(request), { isDeploySmoke }), {
     status: 202,
     headers: responseHeaders
   });

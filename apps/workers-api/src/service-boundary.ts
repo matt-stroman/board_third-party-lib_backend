@@ -74,6 +74,7 @@ import {
   type VerifiedDeveloperRoleStateResponse
 } from "@board-enthusiasts/migration-contract";
 import { problem, validationProblem } from "./http";
+import { renderMarketingSignupWelcomeEmail } from "./email-templates/marketing-signup-welcome";
 
 type AppUserRow = {
   id: string;
@@ -856,6 +857,10 @@ interface CreateMarketingSignupOptions {
   bypassTurnstile?: boolean;
 }
 
+interface ReportSupportIssueOptions {
+  isDeploySmoke?: boolean;
+}
+
 export class WorkerAppService {
   private readonly context: WorkerAppContext;
   private readonly client: SupabaseClient;
@@ -962,6 +967,10 @@ export class WorkerAppService {
       roleInterests
     };
 
+    if (existing === null && !options.bypassTurnstile) {
+      void this.sendMarketingSignupWelcomeEmail(saved, roleInterests);
+    }
+
     return {
       accepted: true,
       duplicate: existing !== null,
@@ -969,7 +978,7 @@ export class WorkerAppService {
     };
   }
 
-  async reportSupportIssue(input: SupportIssueReportRequest): Promise<{ accepted: true }> {
+  async reportSupportIssue(input: SupportIssueReportRequest, options: ReportSupportIssueOptions = {}): Promise<{ accepted: true }> {
     if (input.category !== "email_signup") {
       throw validationProblem({
         category: ["Category must be 'email_signup'."]
@@ -1000,6 +1009,7 @@ export class WorkerAppService {
     const lines = [
       "Board Enthusiasts landing-page issue report",
       "",
+      `Smoke test: ${options.isDeploySmoke ? "yes" : "no"}`,
       `Category: ${input.category}`,
       `Occurred at: ${occurredAt}`,
       `Page URL: ${pageUrl}`,
@@ -1016,8 +1026,12 @@ export class WorkerAppService {
       `Technical details: ${technicalDetails ?? "(not provided)"}`,
     ];
 
+    if (options.isDeploySmoke && this.context.envName === "staging") {
+      return { accepted: true };
+    }
+
     await this.sendSupportIssueEmail({
-      subject: "[Bug Report] Email signup issue",
+      subject: options.isDeploySmoke ? "[Smoke Test] Email signup issue" : "[Bug Report] Email signup issue",
       text: lines.join("\n"),
       replyToEmail: normalizedEmail,
       replyToName: firstName,
@@ -4470,6 +4484,119 @@ export class WorkerAppService {
         brevo_last_error: (error instanceof Error ? error.message : String(error)).slice(0, 1000),
         brevo_synced_at: null
       });
+    }
+  }
+
+  private async sendMarketingSignupWelcomeEmail(
+    contact: MarketingContactRow,
+    roleInterests: readonly MarketingContactRoleInterest[]
+  ): Promise<void> {
+    const email = renderMarketingSignupWelcomeEmail({
+      firstName: contact.first_name,
+      roleInterests,
+    });
+
+    try {
+      if (this.context.envName === "local" && this.context.mailpitBaseUrl) {
+        await this.sendMarketingSignupWelcomeEmailViaMailpit(contact.email, email.recipientName, email.subject, email.text, email.html);
+        return;
+      }
+
+      if (this.context.brevoApiKey) {
+        await this.sendMarketingSignupWelcomeEmailViaBrevo(contact.email, email.recipientName, email.subject, email.text, email.html);
+        return;
+      }
+
+      if (this.context.mailpitBaseUrl) {
+        await this.sendMarketingSignupWelcomeEmailViaMailpit(contact.email, email.recipientName, email.subject, email.text, email.html);
+      }
+    } catch (error) {
+      console.warn("Marketing signup welcome email failed.", error);
+    }
+  }
+
+  private async sendMarketingSignupWelcomeEmailViaMailpit(
+    recipientEmail: string,
+    recipientName: string,
+    subject: string,
+    text: string,
+    html: string
+  ): Promise<void> {
+    const response = await fetch(`${this.context.mailpitBaseUrl!.replace(/\/$/, "")}/api/v1/send`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify({
+        From: {
+          Email: this.context.supportReportSenderEmail,
+          Name: this.context.supportReportSenderName,
+        },
+        To: [
+          {
+            Email: recipientEmail,
+            Name: recipientName,
+          },
+        ],
+        Subject: subject,
+        Text: text,
+        HTML: html,
+        Tags: ["marketing", "welcome", "landing-page"],
+      }),
+    });
+
+    if (!response.ok) {
+      const detail = (await response.text()).trim();
+      throw problem(
+        502,
+        "marketing_welcome_delivery_failed",
+        "Welcome email delivery is temporarily unavailable.",
+        detail || `Mailpit returned ${response.status}.`
+      );
+    }
+  }
+
+  private async sendMarketingSignupWelcomeEmailViaBrevo(
+    recipientEmail: string,
+    recipientName: string,
+    subject: string,
+    text: string,
+    html: string
+  ): Promise<void> {
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+        "api-key": this.context.brevoApiKey!,
+      },
+      body: JSON.stringify({
+        sender: {
+          email: this.context.supportReportSenderEmail,
+          name: this.context.supportReportSenderName,
+        },
+        to: [
+          {
+            email: recipientEmail,
+            name: recipientName,
+          },
+        ],
+        subject,
+        textContent: text,
+        htmlContent: html,
+        tags: ["marketing", "welcome", "landing-page"],
+      }),
+    });
+
+    if (!response.ok) {
+      const detail = (await response.text()).trim();
+      throw problem(
+        502,
+        "marketing_welcome_delivery_failed",
+        "Welcome email delivery is temporarily unavailable.",
+        detail || `Brevo returned ${response.status}.`
+      );
     }
   }
 

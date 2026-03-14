@@ -145,6 +145,10 @@ describe("WorkerAppService.createMarketingSignup", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ id: 42 }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ messageId: "welcome-1" }),
       });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -198,6 +202,19 @@ describe("WorkerAppService.createMarketingSignup", () => {
         }),
       }),
     );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "https://api.brevo.com/v3/smtp/email",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining("\"subject\":\"You're on the BE list!\""),
+      }),
+    );
+    expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({
+      method: "POST",
+    });
+    expect(String(fetchMock.mock.calls[2]?.[1]?.body)).toContain("\"name\":\"Taylor\"");
+    expect(String(fetchMock.mock.calls[2]?.[1]?.body)).toContain("\"htmlContent\":\"<!DOCTYPE html>");
   });
 
   it("treats unchecked role interests as none for Brevo and an empty application record", async () => {
@@ -210,6 +227,10 @@ describe("WorkerAppService.createMarketingSignup", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ id: 99 }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ messageId: "welcome-2" }),
       });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -240,6 +261,14 @@ describe("WorkerAppService.createMarketingSignup", () => {
         body: expect.stringContaining("\"BE_ROLE_INTEREST\":\"none\""),
       }),
     );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "https://api.brevo.com/v3/smtp/email",
+      expect.objectContaining({
+        body: expect.stringContaining("\"subject\":\"You're on the BE list!\""),
+      }),
+    );
+    expect(String(fetchMock.mock.calls[2]?.[1]?.body)).toContain("\"name\":\"Interested\"");
   });
 
   it("can bypass turnstile verification for deploy smoke signups while still syncing Brevo", async () => {
@@ -280,6 +309,100 @@ describe("WorkerAppService.createMarketingSignup", () => {
         method: "POST",
       }),
     );
+  });
+
+  it("does not send the welcome email again for duplicate signups", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ success: true }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 77 }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ messageId: "welcome-repeat" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ success: true }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 77 }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const service = new WorkerAppService({
+      APP_ENV: "staging",
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_PUBLISHABLE_KEY: "publishable-key",
+      SUPABASE_SECRET_KEY: "secret-key",
+      TURNSTILE_SECRET_KEY: "turnstile-secret",
+      BREVO_API_KEY: "brevo-api-key",
+      BREVO_SIGNUPS_LIST_ID: "12",
+    });
+
+    await service.createMarketingSignup({
+      email: "repeat@example.com",
+      firstName: "Repeat",
+      source: "landing_page",
+      consentTextVersion: "landing-page-v1",
+      turnstileToken: "turnstile-token",
+      roleInterests: ["player"],
+    });
+
+    await service.createMarketingSignup({
+      email: "repeat@example.com",
+      firstName: "Repeat",
+      source: "landing_page",
+      consentTextVersion: "landing-page-v1",
+      turnstileToken: "turnstile-token",
+      roleInterests: ["player"],
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "https://api.brevo.com/v3/smtp/email", expect.any(Object));
+    expect(fetchMock).not.toHaveBeenNthCalledWith(5, "https://api.brevo.com/v3/smtp/email", expect.any(Object));
+  });
+
+  it("suppresses deploy-smoke support emails in staging", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const service = new WorkerAppService({
+      APP_ENV: "staging",
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_PUBLISHABLE_KEY: "publishable-key",
+      SUPABASE_SECRET_KEY: "secret-key",
+      BREVO_API_KEY: "brevo-api-key",
+      BREVO_SIGNUPS_LIST_ID: "12",
+      SUPPORT_REPORT_RECIPIENT: "support@boardenthusiasts.com",
+      SUPPORT_REPORT_SENDER_EMAIL: "noreply@boardenthusiasts.com",
+      SUPPORT_REPORT_SENDER_NAME: "Board Enthusiasts",
+    });
+
+    await expect(
+      service.reportSupportIssue(
+        {
+          category: "email_signup",
+          firstName: "Deploy Smoke",
+          email: "deploy-smoke@example.com",
+          pageUrl: "https://staging.boardenthusiasts.com",
+          apiBaseUrl: "https://api.staging.boardenthusiasts.com",
+          occurredAt: "2026-03-14T07:49:44.445613+00:00",
+          errorMessage: "Post-deploy smoke validation",
+          technicalDetails: "Automated deploy smoke verification",
+          userAgent: "board-enthusiasts-dev-cli",
+        },
+        { isDeploySmoke: true },
+      ),
+    ).resolves.toEqual({ accepted: true });
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
