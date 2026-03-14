@@ -24,6 +24,8 @@ These templates are intended for BE-branded operational or marketing sends outsi
 
 These are designed to align with the current public site direction in `frontend/` and can be adapted for Brevo transactional templates or campaign sends.
 
+Worker-owned transactional templates that are rendered directly inside the Cloudflare Workers API live separately under [`backend/apps/workers-api/src/email-templates/`](../../apps/workers-api/src/email-templates/). Keep the visual system aligned between both locations when updating branded email content.
+
 ## Current Template Variables
 
 ### `beta-invite.html`

@@ -170,6 +170,7 @@ describe("handleSupportIssueRoute", () => {
     const service = {
       getContext: vi.fn().mockReturnValue({
         allowedWebOrigins: ["https://boardenthusiasts.com"],
+        deploySmokeSecret: null,
       }),
       reportSupportIssue: vi.fn().mockResolvedValue({
         accepted: true,
@@ -203,6 +204,52 @@ describe("handleSupportIssueRoute", () => {
         firstName: "Taylor",
         email: "taylor@example.com",
       }),
+      { isDeploySmoke: false },
+    );
+  });
+
+  it("marks support issue reports as deploy smoke when the shared secret is present", async () => {
+    const service = {
+      getContext: vi.fn().mockReturnValue({
+        allowedWebOrigins: ["https://boardenthusiasts.com"],
+        deploySmokeSecret: "smoke-secret",
+      }),
+      reportSupportIssue: vi.fn().mockResolvedValue({
+        accepted: true,
+      }),
+    };
+
+    await handleSupportIssueRoute(
+      new Request("http://example.test/support/issues", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: "https://boardenthusiasts.com",
+          "x-board-enthusiasts-deploy-smoke-secret": "smoke-secret",
+        },
+        body: JSON.stringify({
+          category: "email_signup",
+          firstName: "Deploy Smoke",
+          email: "deploy-smoke@example.com",
+          pageUrl: "https://staging.boardenthusiasts.com",
+          apiBaseUrl: "https://api.staging.boardenthusiasts.com",
+          occurredAt: "2026-03-14T07:49:44.445613+00:00",
+          errorMessage: "Post-deploy smoke validation",
+          technicalDetails: "Automated deploy smoke verification",
+          userAgent: "board-enthusiasts-dev-cli",
+        }),
+      }),
+      service as never,
+      {},
+    );
+
+    expect(service.reportSupportIssue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: "email_signup",
+        firstName: "Deploy Smoke",
+        email: "deploy-smoke@example.com",
+      }),
+      { isDeploySmoke: true },
     );
   });
 
@@ -210,6 +257,7 @@ describe("handleSupportIssueRoute", () => {
     const service = {
       getContext: vi.fn().mockReturnValue({
         allowedWebOrigins: ["https://boardenthusiasts.com"],
+        deploySmokeSecret: null,
       }),
       reportSupportIssue: vi.fn(),
     };
