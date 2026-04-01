@@ -150,6 +150,42 @@ This is acceptable for the current wave because:
 - it keeps local and hosted configuration aligned
 - it avoids manual dashboard bucket creation for the maintained stack
 
+## RLS And Browser Uploads
+
+Supabase `RLS` means **row-level security**. It is the Postgres policy layer that decides which rows a given request can `select`, `insert`, `update`, or `delete`.
+
+Important storage detail:
+
+- Supabase Storage keeps object metadata in the `storage.objects` table
+- direct browser uploads therefore need `storage.objects` policies when the browser talks to Supabase Storage with the publishable key
+- the policy answers questions like "who can upload here?", "who can replace this object?", and "who can read private objects?"
+
+Current Board Enthusiasts MVP behavior is different:
+
+- the maintained frontend does **not** upload directly to Supabase Storage
+- browser uploads go to the Workers API first
+- the Workers API then uploads to Supabase Storage with the server-side secret key
+
+That means the current upload path is **backend-mediated**, and the server-side secret bypasses RLS. For the present staging release, storage `RLS` on `storage.objects` is therefore **not a blocker** for the maintained media flows.
+
+Current recommendation for staging:
+
+- keep the current public buckets public because the live SPA renders those media URLs directly
+- keep upload authorization in the Workers API, where studio and title ownership checks already happen
+- do not add broad browser-upload `storage.objects` policies yet, because they would protect a path the maintained product does not currently use
+
+If the product later moves to **direct browser-to-Supabase uploads**, add storage policies at that time with this shape:
+
+- `insert`: authenticated users can upload only into prefixes they own or can edit
+- `update` and `delete`: same owner or editor scope as insert
+- `select`: only needed for private buckets or signed-download flows; public buckets do not need a duplicate read policy strategy
+- never use a blanket "any authenticated user can upload anywhere" policy
+
+In short:
+
+- current staging MVP: Workers-enforced upload authorization is the right control point
+- future direct browser uploads: add explicit `storage.objects` RLS policies before enabling that path
+
 ## Follow-ups
 
 - optimize oversized seeded PNG artwork so bucket caps can be tightened further without breaking local/demo seeding

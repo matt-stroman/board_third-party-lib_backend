@@ -144,7 +144,7 @@ function createQueryBuilder(tableName: keyof typeof tables) {
     insert(payload: Array<Record<string, unknown>> | Record<string, unknown>) {
       const rows = Array.isArray(payload) ? payload : [payload];
       (tables[tableName] as Array<Record<string, unknown>>).push(...rows.map((row) => ({ ...row })));
-      return Promise.resolve({ error: null });
+      return builder;
     },
     delete() {
       return {
@@ -618,6 +618,143 @@ describe("WorkerAppService.getCurrentUserResponse", () => {
     expect(tables.app_users[0]).toMatchObject({
       email: "new@example.com",
       email_verified: false,
+    });
+  });
+
+  it("leaves first and last name blank when oauth metadata only provides a full name", async () => {
+    supabaseAuthMocks.getUser.mockResolvedValue({
+      data: {
+        user: {
+          id: "auth-user-1",
+          email: "matt@example.com",
+          email_confirmed_at: "2026-04-01T00:00:00Z",
+          app_metadata: { provider: "github" },
+          user_metadata: {
+            full_name: "Matt Stroman",
+          },
+          identities: [{ provider: "github" }],
+        },
+      },
+      error: null,
+    });
+
+    const service = new WorkerAppService({
+      APP_ENV: "staging",
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_PUBLISHABLE_KEY: "publishable-key",
+      SUPABASE_SECRET_KEY: "secret-key",
+    });
+
+    await expect(service.getCurrentUserProfile("test-token")).resolves.toMatchObject({
+      profile: {
+        subject: "auth-user-1",
+        displayName: "Matt Stroman",
+        firstName: null,
+        lastName: null,
+        email: "matt@example.com",
+        emailVerified: true,
+      },
+    });
+
+    expect(tables.app_users[0]).toMatchObject({
+      auth_user_id: "auth-user-1",
+      display_name: "Matt Stroman",
+      first_name: null,
+      last_name: null,
+      email: "matt@example.com",
+      email_verified: true,
+      identity_provider: "github",
+    });
+  });
+
+  it("captures an oauth avatar URL from provider metadata when creating the projected user", async () => {
+    supabaseAuthMocks.getUser.mockResolvedValue({
+      data: {
+        user: {
+          id: "auth-user-1",
+          email: "matt@example.com",
+          email_confirmed_at: "2026-04-01T00:00:00Z",
+          app_metadata: { provider: "discord" },
+          user_metadata: {
+            full_name: "Matt Stroman",
+            avatar_url: "https://cdn.discordapp.com/avatars/123/avatar.png",
+          },
+          identities: [{ provider: "discord" }],
+        },
+      },
+      error: null,
+    });
+
+    const service = new WorkerAppService({
+      APP_ENV: "staging",
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_PUBLISHABLE_KEY: "publishable-key",
+      SUPABASE_SECRET_KEY: "secret-key",
+    });
+
+    await expect(service.getCurrentUserProfile("test-token")).resolves.toMatchObject({
+      profile: {
+        subject: "auth-user-1",
+        avatarUrl: "https://cdn.discordapp.com/avatars/123/avatar.png",
+      },
+    });
+
+    expect(tables.app_users[0]).toMatchObject({
+      auth_user_id: "auth-user-1",
+      avatar_url: "https://cdn.discordapp.com/avatars/123/avatar.png",
+      identity_provider: "discord",
+    });
+  });
+
+  it("fills in a provider avatar for existing users when the local profile does not have one", async () => {
+    tables.app_users.push({
+      id: "user-1",
+      auth_user_id: "auth-user-1",
+      user_name: "ava.garcia",
+      display_name: "Ava Garcia",
+      first_name: "Ava",
+      last_name: "Garcia",
+      email: "ava@example.com",
+      email_verified: true,
+      identity_provider: "discord",
+      avatar_url: null,
+      avatar_storage_path: null,
+      updated_at: "2026-03-01T00:00:00Z",
+    });
+
+    supabaseAuthMocks.getUser.mockResolvedValue({
+      data: {
+        user: {
+          id: "auth-user-1",
+          email: "ava@example.com",
+          email_confirmed_at: "2026-04-01T00:00:00Z",
+          app_metadata: { provider: "discord" },
+          user_metadata: {
+            avatar_url: "https://cdn.discordapp.com/avatars/456/avatar.png",
+          },
+          identities: [{ provider: "discord" }],
+        },
+      },
+      error: null,
+    });
+
+    const service = new WorkerAppService({
+      APP_ENV: "staging",
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_PUBLISHABLE_KEY: "publishable-key",
+      SUPABASE_SECRET_KEY: "secret-key",
+    });
+
+    await expect(service.getCurrentUserProfile("test-token")).resolves.toMatchObject({
+      profile: {
+        subject: "auth-user-1",
+        avatarUrl: "https://cdn.discordapp.com/avatars/456/avatar.png",
+      },
+    });
+
+    expect(tables.app_users[0]).toMatchObject({
+      avatar_url: "https://cdn.discordapp.com/avatars/456/avatar.png",
+      avatar_storage_path: null,
     });
   });
 });

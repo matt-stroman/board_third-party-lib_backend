@@ -412,6 +412,31 @@ function trimNullableString(value: string | null | undefined, maxLength: number)
   return trimmed.slice(0, maxLength);
 }
 
+function readTrimmedMetadataString(metadata: Record<string, unknown>, ...keys: string[]): string | null {
+  for (const key of keys) {
+    const candidate = metadata[key];
+    if (typeof candidate === "string" && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+  }
+
+  return null;
+}
+
+function extractAuthMetadataAvatarUrl(metadata: Record<string, unknown>): string | null {
+  const avatarDataUrl = readTrimmedMetadataString(metadata, "avatarDataUrl");
+  if (avatarDataUrl) {
+    return avatarDataUrl;
+  }
+
+  const avatarUrl = readTrimmedMetadataString(metadata, "avatarUrl", "avatar_url", "picture", "image", "profile_image_url");
+  if (!avatarUrl) {
+    return null;
+  }
+
+  return isAbsoluteUrl(avatarUrl) ? avatarUrl : null;
+}
+
 function isValidMarketingSource(value: string): boolean {
   return /^[a-z0-9][a-z0-9_-]{0,63}$/.test(value);
 }
@@ -2825,9 +2850,7 @@ export class WorkerAppService {
       (typeof metadata.displayName === "string" && metadata.displayName.trim().length > 0 ? metadata.displayName.trim() : null) ??
       (typeof metadata.full_name === "string" && metadata.full_name.trim().length > 0 ? metadata.full_name.trim() : null);
     const displayName = metadataDisplayName ?? ([firstName, lastName].filter(Boolean).join(" ").trim() || null);
-    const avatarUrl =
-      (typeof metadata.avatarUrl === "string" && metadata.avatarUrl.trim().length > 0 ? metadata.avatarUrl.trim() : null) ??
-      (typeof metadata.avatarDataUrl === "string" && metadata.avatarDataUrl.trim().length > 0 ? metadata.avatarDataUrl.trim() : null);
+    const avatarUrl = extractAuthMetadataAvatarUrl(metadata);
     const userName = await this.reserveProjectedUserName(
       typeof metadata.userName === "string" && metadata.userName.trim().length > 0
         ? metadata.userName
@@ -2867,14 +2890,22 @@ export class WorkerAppService {
   private async syncProjectedUserFromAuth(existing: AppUserRow, authUser: SupabaseAuthUser): Promise<AppUserRow> {
     const email = typeof authUser.email === "string" && authUser.email.trim().length > 0 ? normalizeEmailAddress(authUser.email) : null;
     const emailVerified = Boolean(authUser.email_confirmed_at);
+    const metadata = (authUser.user_metadata ?? {}) as Record<string, unknown>;
     const provider =
       typeof authUser.app_metadata?.provider === "string"
         ? authUser.app_metadata.provider
         : Array.isArray(authUser.identities) && typeof authUser.identities[0]?.provider === "string"
           ? authUser.identities[0].provider
           : existing.identity_provider ?? "email";
+    const avatarUrl = extractAuthMetadataAvatarUrl(metadata);
+    const shouldAdoptProviderAvatar = !existing.avatar_url && !existing.avatar_storage_path && Boolean(avatarUrl);
 
-    if (existing.email === email && existing.email_verified === emailVerified && existing.identity_provider === provider) {
+    if (
+      existing.email === email &&
+      existing.email_verified === emailVerified &&
+      existing.identity_provider === provider &&
+      !shouldAdoptProviderAvatar
+    ) {
       return existing;
     }
 
@@ -2882,6 +2913,7 @@ export class WorkerAppService {
       email,
       email_verified: emailVerified,
       identity_provider: provider,
+      ...(shouldAdoptProviderAvatar ? { avatar_url: avatarUrl ?? null, avatar_storage_path: null } : {}),
       updated_at: new Date().toISOString(),
     };
 

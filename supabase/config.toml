@@ -48,6 +48,7 @@ additional_redirect_urls = [
 ]
 jwt_expiry = 3600
 enable_signup = true
+enable_manual_linking = true
 
 [auth.email]
 enable_signup = true
@@ -107,9 +108,14 @@ enroll_enabled = true
 verify_enabled = true
 
 [auth.external.github]
-enabled = false
+enabled = true
 client_id = "env(SUPABASE_AUTH_GITHUB_CLIENT_ID)"
 secret = "env(SUPABASE_AUTH_GITHUB_CLIENT_SECRET)"
+
+[auth.external.discord]
+enabled = true
+client_id = "env(SUPABASE_AUTH_DISCORD_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_DISCORD_CLIENT_SECRET)"
 
 [auth.external.google]
 enabled = false
