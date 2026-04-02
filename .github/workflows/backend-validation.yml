@@ -157,49 +157,9 @@ jobs:
 
       - name: Run contract smoke coverage against maintained local API runtime
         working-directory: root-workspace
-        shell: bash
-        run: |
-          mkdir -p .dev-cli-logs
-          python ./scripts/dev.py api up --skip-install > .dev-cli-logs/integration-api-runtime.log 2>&1 &
-          echo "$!" > .dev-cli-logs/integration-api-runtime.pid
+        run: python ./scripts/dev.py contract-smoke --start-workers
 
-          for _ in $(seq 1 60); do
-            if curl --silent --fail http://127.0.0.1:8787/health/ready > /dev/null; then
-              break
-            fi
-
-            if ! kill -0 "$(cat .dev-cli-logs/integration-api-runtime.pid)" 2>/dev/null; then
-              echo "Maintained API runtime exited before becoming ready." >&2
-              cat .dev-cli-logs/integration-api-runtime.log >&2 || true
-              exit 1
-            fi
-
-            sleep 2
-          done
-
-          if ! curl --silent --fail http://127.0.0.1:8787/health/ready > /dev/null; then
-            echo "Maintained API runtime did not become ready in time." >&2
-            cat .dev-cli-logs/integration-api-runtime.log >&2 || true
-            exit 1
-          fi
-
-          if python ./scripts/dev.py contract-smoke; then
-            exit 0
-          fi
-
-          if [ -f .dev-cli-logs/workers-api.log ]; then
-            echo "Last Workers API log:" >&2
-            cat .dev-cli-logs/workers-api.log >&2
-          fi
-
-          if [ -f .dev-cli-logs/integration-api-runtime.log ]; then
-            echo "Maintained API runtime log:" >&2
-            cat .dev-cli-logs/integration-api-runtime.log >&2
-          fi
-
-          exit 1
-
-      - name: Stop maintained local API runtime
+      - name: Stop maintained local runtime dependencies
         if: always()
         working-directory: root-workspace
         run: python ./scripts/dev.py api down --include-dependencies
