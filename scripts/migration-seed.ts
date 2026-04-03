@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -21,6 +22,7 @@ interface SeedOptions {
   heroImagesBucket: string;
   logoImagesBucket: string;
   bucketsOnly: boolean;
+  additive: boolean;
 }
 
 interface ParsedArgs {
@@ -83,6 +85,7 @@ function requireArg(args: ParsedArgs, name: string): string {
 function buildOptions(argv: string[]): SeedOptions {
   const args = parseArgs(argv);
   const bucketsOnly = (args["buckets-only"] ?? "").trim().toLowerCase() === "true";
+  const additive = (args["additive"] ?? "").trim().toLowerCase() === "true";
 
   return {
     supabaseUrl: requireArg(args, "supabase-url"),
@@ -94,6 +97,7 @@ function buildOptions(argv: string[]): SeedOptions {
     heroImagesBucket: (args["hero-images-bucket"] ?? migrationMediaBuckets.heroImages).trim() || migrationMediaBuckets.heroImages,
     logoImagesBucket: (args["logo-images-bucket"] ?? migrationMediaBuckets.logoImages).trim() || migrationMediaBuckets.logoImages,
     bucketsOnly,
+    additive,
   };
 }
 
@@ -122,6 +126,14 @@ function deriveInitials(displayName: string): string {
     .slice(0, 2)
     .map((segment) => segment[0]!.toUpperCase())
     .join("");
+}
+
+export function buildStableSeedUuid(seed: string): string {
+  const digest = createHash("sha1").update(seed).digest("hex").slice(0, 32).split("");
+  digest[12] = "5";
+  digest[16] = ((parseInt(digest[16]!, 16) & 0x3) | 0x8).toString(16);
+  const hex = digest.join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
 function buildPlayerCountDisplay(minPlayers: number, maxPlayers: number): string {
@@ -374,8 +386,12 @@ async function seedOnce(options: SeedOptions): Promise<void> {
   console.log("==> Creating or updating deterministic Supabase auth users");
   const authUsers = await ensureAuthUsers(client, options.password!);
 
-  console.log("==> Resetting local demo tables");
-  await resetDemoData(client);
+  if (options.additive) {
+    console.log("==> Preserving existing data and adding any missing demo fixtures");
+  } else {
+    console.log("==> Resetting local demo tables");
+    await resetDemoData(client);
+  }
 
   console.log("==> Seeding application users and role projections");
   const appUserRows = migrationSeedUsers.map((fixture) => {
@@ -398,12 +414,18 @@ async function seedOnce(options: SeedOptions): Promise<void> {
     };
   });
 
-  const { data: insertedUsers, error: userInsertError } = await client
+  const { error: userInsertError } = await client
     .from("app_users")
-    .insert(appUserRows)
-    .select("id, auth_user_id, user_name");
+    .upsert(appUserRows, { onConflict: "auth_user_id", ignoreDuplicates: true });
   if (userInsertError) {
     throw userInsertError;
+  }
+
+  const { data: insertedUsers, error: userSelectError } = await client
+    .from("app_users")
+    .select("id, auth_user_id, user_name");
+  if (userSelectError) {
+    throw userSelectError;
   }
 
   const appUsersByUserName = new Map(insertedUsers.map((row) => [row.user_name as string, row.id as string]));
@@ -420,7 +442,10 @@ async function seedOnce(options: SeedOptions): Promise<void> {
       role
     }));
   });
-  const { error: roleInsertError } = await client.from("app_user_roles").insert(roleRows);
+  const { error: roleInsertError } = await client.from("app_user_roles").upsert(roleRows, {
+    onConflict: "user_id,role",
+    ignoreDuplicates: true
+  });
   if (roleInsertError) {
     throw roleInsertError;
   }
@@ -434,7 +459,10 @@ async function seedOnce(options: SeedOptions): Promise<void> {
       avatar_url: fixture.boardAvatarUrl ?? null
     }));
   if (boardProfileRows.length > 0) {
-    const { error: boardProfileError } = await client.from("user_board_profiles").insert(boardProfileRows);
+    const { error: boardProfileError } = await client.from("user_board_profiles").upsert(boardProfileRows, {
+      onConflict: "user_id",
+      ignoreDuplicates: true
+    });
     if (boardProfileError) {
       throw boardProfileError;
     }
@@ -493,12 +521,18 @@ async function seedOnce(options: SeedOptions): Promise<void> {
     });
   }
 
-  const { data: insertedStudios, error: studioInsertError } = await client
+  const { error: studioInsertError } = await client
     .from("studios")
-    .insert(studioRows)
-    .select("id, slug");
+    .upsert(studioRows, { onConflict: "slug", ignoreDuplicates: true });
   if (studioInsertError) {
     throw studioInsertError;
+  }
+
+  const { data: insertedStudios, error: studioSelectError } = await client
+    .from("studios")
+    .select("id, slug");
+  if (studioSelectError) {
+    throw studioSelectError;
   }
 
   const studiosBySlug = new Map(insertedStudios.map((row) => [row.slug as string, row.id as string]));
@@ -508,31 +542,33 @@ async function seedOnce(options: SeedOptions): Promise<void> {
     user_id: appUsersByUserName.get(studio.ownerUserName),
     role: "owner"
   }));
-  const { error: membershipError } = await client.from("studio_memberships").insert(membershipRows);
+  const { error: membershipError } = await client.from("studio_memberships").upsert(membershipRows, {
+    onConflict: "studio_id,user_id",
+    ignoreDuplicates: true
+  });
   if (membershipError) {
     throw membershipError;
   }
 
   const linkRows = migrationSeedStudios.flatMap((studio) =>
     studio.links.map((link) => ({
+      id: buildStableSeedUuid(`studio-link:${studio.slug}:${link.label}:${link.url}`),
       studio_id: studiosBySlug.get(studio.slug),
       label: link.label,
       url: link.url
     }))
   );
   if (linkRows.length > 0) {
-    const { error: linkInsertError } = await client.from("studio_links").insert(linkRows);
+    const { error: linkInsertError } = await client.from("studio_links").upsert(linkRows, {
+      onConflict: "id",
+      ignoreDuplicates: true
+    });
     if (linkInsertError) {
       throw linkInsertError;
     }
   }
 
   console.log("==> Uploading title media and seeding public catalog rows");
-  const titleRows: Array<Record<string, unknown>> = [];
-  const mediaRows: Array<Record<string, unknown>> = [];
-  const metadataVersionRows: Array<Record<string, unknown>> = [];
-  const metadataVersionGenreRows: Array<Record<string, unknown>> = [];
-  const releaseRows: Array<Record<string, unknown>> = [];
   const titleIdsBySlug = new Map<string, string>();
   for (const title of migrationSeedTitles) {
     const studioId = studiosBySlug.get(title.studioSlug);
@@ -540,9 +576,55 @@ async function seedOnce(options: SeedOptions): Promise<void> {
       throw new Error(`Missing studio ${title.studioSlug} for title ${title.slug}`);
     }
 
-    const titleId = crypto.randomUUID();
+    const seededTitleId = buildStableSeedUuid(`title:${title.studioSlug}:${title.slug}`);
+    const currentReleaseId = title.currentReleaseVersion
+      ? buildStableSeedUuid(`title-release:${title.studioSlug}:${title.slug}:${title.currentReleaseVersion}`)
+      : null;
+
+    const titleRow = {
+      id: seededTitleId,
+      studio_id: studioId,
+      slug: title.slug,
+      content_kind: title.contentKind,
+      lifecycle_status: title.lifecycleStatus,
+      visibility: title.visibility,
+      is_reported: title.isReported,
+      current_metadata_revision: title.currentMetadataRevision,
+      display_name: title.displayName,
+      short_description: title.shortDescription,
+      description: title.description,
+      genre_display: title.genreDisplay,
+      min_players: title.minPlayers,
+      max_players: title.maxPlayers,
+      age_rating_authority: title.ageRatingAuthority,
+      age_rating_value: title.ageRatingValue,
+      min_age_years: title.minAgeYears,
+      current_release_id: currentReleaseId,
+      current_release_version: title.currentReleaseVersion ?? null,
+      current_release_published_at: title.currentReleasePublishedAt ?? null,
+      acquisition_url: title.acquisition?.url ?? null
+    };
+    const { error: titleUpsertError } = await client.from("titles").upsert(titleRow, {
+      onConflict: "studio_id,slug",
+      ignoreDuplicates: true
+    });
+    if (titleUpsertError) {
+      throw titleUpsertError;
+    }
+
+    const { data: storedTitle, error: titleSelectError } = await client
+      .from("titles")
+      .select("id")
+      .eq("studio_id", studioId)
+      .eq("slug", title.slug)
+      .single();
+    if (titleSelectError || !storedTitle?.id) {
+      throw titleSelectError ?? new Error(`Failed to resolve title id for ${title.slug}`);
+    }
+    const titleId = String(storedTitle.id);
     titleIdsBySlug.set(title.slug, titleId);
-    const currentReleaseId = title.currentReleaseVersion ? crypto.randomUUID() : null;
+
+    const mediaRows: Array<Record<string, unknown>> = [];
     for (const media of title.media) {
       const uploaded = await uploadAsset(
         client,
@@ -563,7 +645,18 @@ async function seedOnce(options: SeedOptions): Promise<void> {
         height: media.height
       });
     }
+    if (mediaRows.length > 0) {
+      const { error: mediaInsertError } = await client.from("title_media_assets").upsert(mediaRows, {
+        onConflict: "title_id,media_role",
+        ignoreDuplicates: true
+      });
+      if (mediaInsertError) {
+        throw mediaInsertError;
+      }
+    }
 
+    const metadataVersionRows: Array<Record<string, unknown>> = [];
+    const metadataVersionGenreRows: Array<Record<string, unknown>> = [];
     for (let revisionNumber = 1; revisionNumber <= title.currentMetadataRevision; revisionNumber += 1) {
       const isCurrent = revisionNumber === title.currentMetadataRevision;
       metadataVersionRows.push({
@@ -596,7 +689,28 @@ async function seedOnce(options: SeedOptions): Promise<void> {
         }))
       );
     }
+    if (metadataVersionRows.length > 0) {
+      const { error: metadataVersionInsertError } = await client.from("title_metadata_versions").upsert(metadataVersionRows, {
+        onConflict: "title_id,revision_number",
+        ignoreDuplicates: true
+      });
+      if (metadataVersionInsertError) {
+        throw metadataVersionInsertError;
+      }
+    }
+    if (metadataVersionGenreRows.length > 0) {
+      const { error: metadataVersionGenreInsertError } = await client
+        .from("title_metadata_version_genres")
+        .upsert(metadataVersionGenreRows, {
+          onConflict: "title_id,revision_number,genre_slug",
+          ignoreDuplicates: true
+        });
+      if (metadataVersionGenreInsertError) {
+        throw metadataVersionGenreInsertError;
+      }
+    }
 
+    const releaseRows: Array<Record<string, unknown>> = [];
     if (title.currentReleaseVersion && currentReleaseId) {
       releaseRows.push({
         id: currentReleaseId,
@@ -610,7 +724,7 @@ async function seedOnce(options: SeedOptions): Promise<void> {
     }
 
     if (title.slug === "compass-echo") {
-      const draftReleaseId = crypto.randomUUID();
+      const draftReleaseId = buildStableSeedUuid(`title-release:${title.studioSlug}:${title.slug}:1.0.0-rc1`);
       releaseRows.push({
         id: draftReleaseId,
         title_id: titleId,
@@ -621,51 +735,15 @@ async function seedOnce(options: SeedOptions): Promise<void> {
         published_at: null
       });
     }
-
-    titleRows.push({
-      id: titleId,
-      studio_id: studioId,
-      slug: title.slug,
-      content_kind: title.contentKind,
-      lifecycle_status: title.lifecycleStatus,
-      visibility: title.visibility,
-      is_reported: title.isReported,
-      current_metadata_revision: title.currentMetadataRevision,
-      display_name: title.displayName,
-      short_description: title.shortDescription,
-      description: title.description,
-      genre_display: title.genreDisplay,
-      min_players: title.minPlayers,
-      max_players: title.maxPlayers,
-      age_rating_authority: title.ageRatingAuthority,
-      age_rating_value: title.ageRatingValue,
-      min_age_years: title.minAgeYears,
-      current_release_id: currentReleaseId,
-      current_release_version: title.currentReleaseVersion ?? null,
-      current_release_published_at: title.currentReleasePublishedAt ?? null,
-      acquisition_url: title.acquisition?.url ?? null
-    });
-  }
-
-  const { error: titleInsertError } = await client.from("titles").insert(titleRows);
-  if (titleInsertError) {
-    throw titleInsertError;
-  }
-  const { error: metadataVersionInsertError } = await client.from("title_metadata_versions").insert(metadataVersionRows);
-  if (metadataVersionInsertError) {
-    throw metadataVersionInsertError;
-  }
-  const { error: metadataVersionGenreInsertError } = await client.from("title_metadata_version_genres").insert(metadataVersionGenreRows);
-  if (metadataVersionGenreInsertError) {
-    throw metadataVersionGenreInsertError;
-  }
-  const { error: releaseInsertError } = await client.from("title_releases").insert(releaseRows);
-  if (releaseInsertError) {
-    throw releaseInsertError;
-  }
-  const { error: mediaInsertError } = await client.from("title_media_assets").insert(mediaRows);
-  if (mediaInsertError) {
-    throw mediaInsertError;
+    if (releaseRows.length > 0) {
+      const { error: releaseInsertError } = await client.from("title_releases").upsert(releaseRows, {
+        onConflict: "title_id,version",
+        ignoreDuplicates: true
+      });
+      if (releaseInsertError) {
+        throw releaseInsertError;
+      }
+    }
   }
   const avaUserId = appUsersByUserName.get("ava.garcia");
   const alexUserId = appUsersByUserName.get("alex.rivera");
@@ -676,9 +754,12 @@ async function seedOnce(options: SeedOptions): Promise<void> {
 
   console.log("==> Seeding player collections and title reports");
   if (avaUserId && lanternDriftTitleId) {
-    const { error: libraryError } = await client.from("player_library_titles").insert({
+    const { error: libraryError } = await client.from("player_library_titles").upsert({
       user_id: avaUserId,
       title_id: lanternDriftTitleId
+    }, {
+      onConflict: "user_id,title_id",
+      ignoreDuplicates: true
     });
     if (libraryError) {
       throw libraryError;
@@ -686,9 +767,12 @@ async function seedOnce(options: SeedOptions): Promise<void> {
   }
 
   if (avaUserId && compassEchoTitleId) {
-    const { error: wishlistError } = await client.from("player_wishlist_titles").insert({
+    const { error: wishlistError } = await client.from("player_wishlist_titles").upsert({
       user_id: avaUserId,
       title_id: compassEchoTitleId
+    }, {
+      onConflict: "user_id,title_id",
+      ignoreDuplicates: true
     });
     if (wishlistError) {
       throw wishlistError;
@@ -696,11 +780,11 @@ async function seedOnce(options: SeedOptions): Promise<void> {
   }
 
   if (avaUserId && orbitOrchardTitleId && alexUserId && emmaUserId) {
-    const reportId = crypto.randomUUID();
+    const reportId = buildStableSeedUuid("title-report:orbit-orchard:missing-release-notes");
     const createdAt = "2026-03-08T10:15:00Z";
     const updatedAt = "2026-03-08T11:00:00Z";
 
-    const { error: reportError } = await client.from("title_reports").insert({
+    const { error: reportError } = await client.from("title_reports").upsert({
       id: reportId,
       title_id: orbitOrchardTitleId,
       reporter_user_id: avaUserId,
@@ -711,13 +795,17 @@ async function seedOnce(options: SeedOptions): Promise<void> {
       resolved_at: null,
       created_at: createdAt,
       updated_at: updatedAt
+    }, {
+      onConflict: "id",
+      ignoreDuplicates: true
     });
     if (reportError) {
       throw reportError;
     }
 
-    const { error: reportMessageError } = await client.from("title_report_messages").insert([
+    const { error: reportMessageError } = await client.from("title_report_messages").upsert([
       {
+        id: buildStableSeedUuid("title-report-message:orbit-orchard:player"),
         report_id: reportId,
         author_user_id: avaUserId,
         author_role: "player",
@@ -726,6 +814,7 @@ async function seedOnce(options: SeedOptions): Promise<void> {
         created_at: createdAt
       },
       {
+        id: buildStableSeedUuid("title-report-message:orbit-orchard:moderator"),
         report_id: reportId,
         author_user_id: alexUserId,
         author_role: "moderator",
@@ -733,13 +822,17 @@ async function seedOnce(options: SeedOptions): Promise<void> {
         message: "Thanks. Can you confirm whether this happens on the current published listing and not just the testing build?",
         created_at: updatedAt
       }
-    ]);
+    ], {
+      onConflict: "id",
+      ignoreDuplicates: true
+    });
     if (reportMessageError) {
       throw reportMessageError;
     }
 
-    const { error: notificationError } = await client.from("user_notifications").insert([
+    const { error: notificationError } = await client.from("user_notifications").upsert([
       {
+        id: buildStableSeedUuid("notification:orbit-orchard:moderator"),
         user_id: alexUserId,
         category: "title_report",
         title: "New title report submitted",
@@ -751,6 +844,7 @@ async function seedOnce(options: SeedOptions): Promise<void> {
         updated_at: createdAt
       },
       {
+        id: buildStableSeedUuid("notification:orbit-orchard:developer"),
         user_id: emmaUserId,
         category: "title_report",
         title: "Moderator follow-up for your title",
@@ -762,6 +856,7 @@ async function seedOnce(options: SeedOptions): Promise<void> {
         updated_at: updatedAt
       },
       {
+        id: buildStableSeedUuid("notification:orbit-orchard:player"),
         user_id: avaUserId,
         category: "title_report",
         title: "Moderator follow-up on your report",
@@ -772,18 +867,21 @@ async function seedOnce(options: SeedOptions): Promise<void> {
         created_at: updatedAt,
         updated_at: updatedAt
       }
-    ]);
+    ], {
+      onConflict: "id",
+      ignoreDuplicates: true
+    });
     if (notificationError) {
       throw notificationError;
     }
   }
 
   if (avaUserId && compassEchoTitleId && alexUserId && emmaUserId) {
-    const reportId = crypto.randomUUID();
+    const reportId = buildStableSeedUuid("title-report:compass-echo:missing-feature");
     const createdAt = "2026-03-08T09:10:00Z";
     const updatedAt = "2026-03-08T10:05:00Z";
 
-    const { error: reportError } = await client.from("title_reports").insert({
+    const { error: reportError } = await client.from("title_reports").upsert({
       id: reportId,
       title_id: compassEchoTitleId,
       reporter_user_id: avaUserId,
@@ -794,13 +892,17 @@ async function seedOnce(options: SeedOptions): Promise<void> {
       resolved_at: null,
       created_at: createdAt,
       updated_at: updatedAt
+    }, {
+      onConflict: "id",
+      ignoreDuplicates: true
     });
     if (reportError) {
       throw reportError;
     }
 
-    const { error: reportMessageError } = await client.from("title_report_messages").insert([
+    const { error: reportMessageError } = await client.from("title_report_messages").upsert([
       {
+        id: buildStableSeedUuid("title-report-message:compass-echo:player"),
         report_id: reportId,
         author_user_id: avaUserId,
         author_role: "player",
@@ -809,6 +911,7 @@ async function seedOnce(options: SeedOptions): Promise<void> {
         created_at: createdAt
       },
       {
+        id: buildStableSeedUuid("title-report-message:compass-echo:moderator"),
         report_id: reportId,
         author_user_id: alexUserId,
         author_role: "moderator",
@@ -816,13 +919,17 @@ async function seedOnce(options: SeedOptions): Promise<void> {
         message: "Please confirm whether this feature is intentionally hidden in testing or if the listing needs an update.",
         created_at: updatedAt
       }
-    ]);
+    ], {
+      onConflict: "id",
+      ignoreDuplicates: true
+    });
     if (reportMessageError) {
       throw reportMessageError;
     }
 
-    const { error: notificationError } = await client.from("user_notifications").insert([
+    const { error: notificationError } = await client.from("user_notifications").upsert([
       {
+        id: buildStableSeedUuid("notification:compass-echo:moderator"),
         user_id: alexUserId,
         category: "title_report",
         title: "New title report submitted",
@@ -834,6 +941,7 @@ async function seedOnce(options: SeedOptions): Promise<void> {
         updated_at: createdAt
       },
       {
+        id: buildStableSeedUuid("notification:compass-echo:developer"),
         user_id: emmaUserId,
         category: "title_report",
         title: "Moderator follow-up for your title",
@@ -844,7 +952,10 @@ async function seedOnce(options: SeedOptions): Promise<void> {
         created_at: updatedAt,
         updated_at: updatedAt
       }
-    ]);
+    ], {
+      onConflict: "id",
+      ignoreDuplicates: true
+    });
     if (notificationError) {
       throw notificationError;
     }
